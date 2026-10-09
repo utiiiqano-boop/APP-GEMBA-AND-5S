@@ -1,34 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  useWindowDimensions,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, useWindowDimensions,
 } from 'react-native';
 import { Slot, router, usePathname } from 'expo-router';
 import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSpring,
-  Easing,
-  interpolate,
+  useSharedValue, useAnimatedStyle, withTiming, withSpring, Easing, interpolate,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '../../features/auth/AuthProvider';
 
-interface NavItem {
-  label: string;
-  route: string;
-  icon: string;
-}
-
-const NAV: NavItem[] = [
+const NAV = [
   { label: 'Audit Gemba', route: '/(app)/gemba', icon: '◎' },
   { label: 'Audit 5S', route: '/(app)/audit5s', icon: '⬡' },
+  { label: 'Tableau Gemba', route: '/(app)/gemba-tableau', icon: '▦' },
+  { label: 'Tableau 5S', route: '/(app)/5s-tableau', icon: '▤' },
   { label: 'Utilisateurs', route: '/(app)/users', icon: '◉' },
   { label: 'Configuration Entreprise', route: '/(app)/settings', icon: '⚙' },
 ];
@@ -36,34 +22,23 @@ const NAV: NavItem[] = [
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { signOut, user } = useAuth();
-
   const handleNav = (route: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push(route as any);
     onNavigate?.();
   };
-
   return (
     <View style={styles.sidebarInner}>
       <View style={styles.brand}>
         <Text style={styles.brandGemba}>GEMBA</Text>
-        <LinearGradient
-          colors={['#3B82F6', '#2563EB']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.brandChip}
-        >
+        <LinearGradient colors={['#3B82F6', '#2563EB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.brandChip}>
           <Text style={styles.brandChipText}>5S</Text>
         </LinearGradient>
       </View>
-
       <View style={styles.userBox}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{(user?.email?.[0] ?? '?').toUpperCase()}</Text>
-        </View>
+        <View style={styles.avatar}><Text style={styles.avatarText}>{(user?.email?.[0] ?? '?').toUpperCase()}</Text></View>
         <Text style={styles.userEmail} numberOfLines={1}>{user?.email}</Text>
       </View>
-
       <ScrollView style={styles.nav} showsVerticalScrollIndicator={false}>
         {NAV.map((item) => {
           const seg = item.route.replace('/(app)', '');
@@ -82,14 +57,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </ScrollView>
-
       <TouchableOpacity
         style={styles.signOut}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           signOut();
         }}
-        activeOpacity={0.85}
       >
         <Text style={styles.signOutText}>⏻  Sign out</Text>
       </TouchableOpacity>
@@ -101,10 +74,8 @@ export default function AppLayout() {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 900;
   const [menuOpen, setMenuOpen] = useState(false);
-
   const slide = useSharedValue(-320);
   const backdrop = useSharedValue(0);
-
   useEffect(() => {
     if (menuOpen) {
       slide.value = withSpring(0, { damping: 20, stiffness: 140 });
@@ -114,30 +85,18 @@ export default function AppLayout() {
       backdrop.value = withTiming(0, { duration: 220 });
     }
   }, [menuOpen]);
-
   const drawerStyle = useAnimatedStyle(() => ({ transform: [{ translateX: slide.value }] }));
   const backdropStyle = useAnimatedStyle(() => ({ opacity: interpolate(backdrop.value, [0, 1], [0, 0.5]) }));
-
-  const openMenu = () => {
-    Haptics.selectionAsync();
-    setMenuOpen(true);
-  };
+  const openMenu = () => { Haptics.selectionAsync(); setMenuOpen(true); };
   const closeMenu = () => setMenuOpen(false);
-
   return (
     <View style={styles.root}>
-      {isDesktop && (
-        <View style={styles.sidebar}>
-          <SidebarContent />
-        </View>
-      )}
+      {isDesktop && (<View style={styles.sidebar}><SidebarContent /></View>)}
       <View style={styles.main}>
         {!isDesktop && (
           <View style={styles.topbar}>
-            <TouchableOpacity onPress={openMenu} style={styles.burger} hitSlop={12} activeOpacity={0.8}>
-              <View style={styles.burgerLine} />
-              <View style={styles.burgerLine} />
-              <View style={styles.burgerLine} />
+            <TouchableOpacity onPress={openMenu} style={styles.burger} hitSlop={12}>
+              <View style={styles.burgerLine} /><View style={styles.burgerLine} /><View style={styles.burgerLine} />
             </TouchableOpacity>
             <Text style={styles.topbarTitle}>GEMBA 5S</Text>
             <View style={{ width: 36 }} />
@@ -160,7 +119,6 @@ export default function AppLayout() {
 }
 
 const SIDEBAR_WIDTH = 280;
-
 const styles = StyleSheet.create({
   root: { flex: 1, flexDirection: 'row', backgroundColor: '#F8FAFC' },
   sidebar: { width: SIDEBAR_WIDTH, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#E2E8F0' },

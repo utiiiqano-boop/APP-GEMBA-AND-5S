@@ -10,20 +10,19 @@ import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../auth/AuthProvider';
-import { GEMBA_QUESTIONS, AuditQuestion } from '../questions';
+import { SECTIONS_5S, ALL_QUESTIONS_5S, Audit5SQuestion } from '../questions5s';
 import { LIGNES } from '../lignes';
 import {
   getOrCreateDraftAudit, getMyCompanyId, getMyRole,
   getAuditAnswers, answerQuestion, submitAudit,
   updateAuditHeader, AnswerRow, AuditMeta, Role,
 } from '../auditService';
-import { supabase } from '../../../lib/supabase';
 import { uploadAuditImage } from '../../../lib/imageUpload';
 import AuditeurPickerModal from '../components/AuditeurPickerModal';
 
 type AnswerValue = 'ok' | 'nok' | 'na';
 
-export default function GembaAuditScreen() {
+export default function Audit5SScreen() {
   const { user } = useAuth();
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [role, setRole] = useState<Role>('member');
@@ -36,11 +35,14 @@ export default function GembaAuditScreen() {
   const [submitted, setSubmitted] = useState(false);
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
 
-  const [ligneModal, setLigneModal] = useState(false);
+  const [zoneModal, setZoneModal] = useState(false);
+  const [piloteModal, setPiloteModal] = useState(false);
   const [auditeurModal, setAuditeurModal] = useState(false);
+  const [tmpPilote, setTmpPilote] = useState('');
 
   const isAdmin = role === 'owner' || role === 'admin';
   const isAuditeur = !!user?.id && audit?.auditeur_id === user.id;
+  const canAnswer = isAuditeur;
 
   const load = useCallback(async () => {
     try {
@@ -49,7 +51,7 @@ export default function GembaAuditScreen() {
       if (!cid) return;
       const r = await getMyRole(cid);
       setRole(r);
-      const a = await getOrCreateDraftAudit(cid, 'gemba');
+      const a = await getOrCreateDraftAudit(cid, '5s');
       setAudit(a);
       const rows = await getAuditAnswers(a.id);
       const map: Record<string, AnswerRow> = {};
@@ -63,15 +65,27 @@ export default function GembaAuditScreen() {
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
-  const setLigne = async (l: string) => {
+  /* Admin : zone */
+  const setZone = async (z: string) => {
     if (!audit) return;
-    setLigneModal(false);
+    setZoneModal(false);
     try {
-      await updateAuditHeader(audit.id, { ligne: l });
-      setAudit({ ...audit, ligne: l });
+      await updateAuditHeader(audit.id, { zone: z });
+      setAudit({ ...audit, zone: z });
     } catch (e: any) { Alert.alert('Erreur', e.message); }
   };
 
+  /* Auditeur : pilote de la zone */
+  const savePilote = async () => {
+    if (!audit) return;
+    setPiloteModal(false);
+    try {
+      await updateAuditHeader(audit.id, { pilote_zone: tmpPilote.trim() || null });
+      setAudit({ ...audit, pilote_zone: tmpPilote.trim() || null });
+    } catch (e: any) { Alert.alert('Erreur', e.message); }
+  };
+
+  /* Admin : auditeur */
   const setAuditeur = async (id: string) => {
     if (!audit) return;
     try {
@@ -81,18 +95,18 @@ export default function GembaAuditScreen() {
   };
 
   const myProgress = useMemo(() => {
-    const total = GEMBA_QUESTIONS.length;
-    const done = GEMBA_QUESTIONS.filter((q) => answers[q.id]?.status === 'done').length;
+    const total = ALL_QUESTIONS_5S.length;
+    const done = ALL_QUESTIONS_5S.filter((q) => answers[q.label]?.status === 'done').length;
     return { total, done, pct: total ? done / total : 0 };
   }, [answers]);
 
-  const patchRow = (q: AuditQuestion, patch: Partial<AnswerRow>) => {
+  const patchRow = (q: Audit5SQuestion, patch: Partial<AnswerRow>) => {
     setAnswers((s) => ({
       ...s,
-      [q.id]: {
-        ...(s[q.id] ?? ({
-          id: '', audit_id: audit?.id ?? '', question_id: q.id,
-          category: q.category,
+      [q.label]: {
+        ...(s[q.label] ?? ({
+          id: '', audit_id: audit?.id ?? '', question_id: q.label,
+          category: `${q.step} — ${q.title}`,
           assignee_id: user?.id ?? null,
           due_date: null, pilot: null, answer: null, comment: '',
           status: 'planned', image_url: null,
@@ -102,36 +116,35 @@ export default function GembaAuditScreen() {
     }));
   };
 
-  const setAnswer = (q: AuditQuestion, v: AnswerValue) => {
+  const setAnswer = (q: Audit5SQuestion, v: AnswerValue) => {
     Haptics.selectionAsync();
-    setErrors((e) => ({ ...e, [q.id]: '' }));
+    setErrors((e) => ({ ...e, [q.label]: '' }));
     patchRow(q, { answer: v, status: 'done' });
   };
-  const setComment = (q: AuditQuestion, t: string) => { setErrors((e) => ({ ...e, [q.id]: '' })); patchRow(q, { comment: t }); };
-  const setPilot = (q: AuditQuestion, t: string) => { setErrors((e) => ({ ...e, [q.id]: '' })); patchRow(q, { pilot: t }); };
-  const setDueDate = (q: AuditQuestion, t: string) => { setErrors((e) => ({ ...e, [q.id]: '' })); patchRow(q, { due_date: t }); };
+  const setComment = (q: Audit5SQuestion, t: string) => { setErrors((e) => ({ ...e, [q.label]: '' })); patchRow(q, { comment: t }); };
+  const setPilotQ = (q: Audit5SQuestion, t: string) => { setErrors((e) => ({ ...e, [q.label]: '' })); patchRow(q, { pilot: t }); };
+  const setDueDate = (q: Audit5SQuestion, t: string) => { setErrors((e) => ({ ...e, [q.label]: '' })); patchRow(q, { due_date: t }); };
 
-  const pickAndUploadImage = async (q: AuditQuestion) => {
+  const pickAndUploadImage = async (q: Audit5SQuestion) => {
     if (!audit || !user?.id) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) { Alert.alert('Permission requise', 'Autorisez les photos.'); return; }
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.75 });
     if (res.canceled || !res.assets[0]) return;
-    setUploadingFor(q.id);
+    setUploadingFor(q.label);
     try {
-      const url = await uploadAuditImage(user.id, audit.id, q.id, res.assets[0].uri);
+      const url = await uploadAuditImage(user.id, audit.id, q.label, res.assets[0].uri);
       patchRow(q, { image_url: url });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e: any) {
-      Alert.alert('Upload échoué', e.message);
-    } finally { setUploadingFor(null); }
+    } catch (e: any) { Alert.alert('Upload échoué', e.message); }
+    finally { setUploadingFor(null); }
   };
 
-  const removeImage = (q: AuditQuestion) => patchRow(q, { image_url: null });
+  const removeImage = (q: Audit5SQuestion) => patchRow(q, { image_url: null });
 
-  const saveRow = async (q: AuditQuestion) => {
+  const saveRow = async (q: Audit5SQuestion) => {
     if (!audit) return;
-    const row = answers[q.id];
+    const row = answers[q.label];
     if (!row?.answer) return;
     if (row.answer === 'nok') {
       const problems: string[] = [];
@@ -140,31 +153,37 @@ export default function GembaAuditScreen() {
       if (!(row.due_date ?? '').trim()) problems.push('date prévue');
       if (!row.image_url) problems.push('image');
       if (problems.length > 0) {
-        setErrors((e) => ({ ...e, [q.id]: `Requis pour NOK : ${problems.join(', ')}` }));
+        setErrors((e) => ({ ...e, [q.label]: `Requis pour NOK : ${problems.join(', ')}` }));
         return;
       }
     }
     try {
       await answerQuestion({
-        auditId: audit.id, questionId: q.id, category: q.category,
-        answer: row.answer, comment: row.comment ?? '', imageUrl: row.image_url,
+        auditId: audit.id, questionId: q.label,
+        category: `${q.step} — ${q.title}`,
+        answer: row.answer, comment: row.comment ?? '',
+        imageUrl: row.image_url,
       });
     } catch (e: any) { console.warn(e); }
   };
 
   const handleSubmit = async () => {
     if (!audit) return;
+    if (!audit.pilote_zone) {
+      Alert.alert('Pilote requis', 'Renseignez le pilote de la zone.');
+      return;
+    }
     const problems: Record<string, string> = {};
-    for (const q of GEMBA_QUESTIONS) {
-      const row = answers[q.id];
-      if (!row?.answer) { problems[q.id] = 'Réponse requise'; continue; }
+    for (const q of ALL_QUESTIONS_5S) {
+      const row = answers[q.label];
+      if (!row?.answer) { problems[q.label] = 'Réponse requise'; continue; }
       if (row.answer === 'nok') {
         const miss: string[] = [];
         if (!(row.comment ?? '').trim()) miss.push('commentaire');
         if (!(row.pilot ?? '').trim()) miss.push('pilote');
         if (!(row.due_date ?? '').trim()) miss.push('date prévue');
         if (!row.image_url) miss.push('image');
-        if (miss.length > 0) problems[q.id] = `Requis pour NOK : ${miss.join(', ')}`;
+        if (miss.length > 0) problems[q.label] = `Requis pour NOK : ${miss.join(', ')}`;
       }
     }
     if (Object.keys(problems).length > 0) {
@@ -175,7 +194,7 @@ export default function GembaAuditScreen() {
     }
     setSubmitBusy(true);
     try {
-      for (const q of GEMBA_QUESTIONS) await saveRow(q);
+      for (const q of ALL_QUESTIONS_5S) await saveRow(q);
       await submitAudit(audit.id, 100);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSubmitted(true);
@@ -189,39 +208,53 @@ export default function GembaAuditScreen() {
 
   if (loading) return (<View style={styles.center}><ActivityIndicator color="#2563EB" size="large" /></View>);
 
-  const canAnswer = isAuditeur || isAdmin;
-
   return (
     <View style={styles.root}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>Audit Gemba</Text>
-            <Text style={styles.headerSub}>{isAdmin ? 'Mode administrateur' : 'Auditeur'}</Text>
+            <Text style={styles.headerTitle}>Audit 5S</Text>
+            <Text style={styles.headerSub}>
+              {isAdmin ? 'Mode administrateur' : (isAuditeur ? 'Auditeur' : 'Observateur')}
+            </Text>
           </View>
           <View style={[styles.rolePill, isAdmin ? styles.rolePillAdmin : styles.rolePillMember]}>
-            <Text style={styles.rolePillText}>{isAdmin ? 'ADMIN' : 'AUDITEUR'}</Text>
+            <Text style={styles.rolePillText}>{isAdmin ? 'ADMIN' : (isAuditeur ? 'AUDITEUR' : '—')}</Text>
           </View>
         </View>
 
+        {/* Zone (admin) + Pilote (auditeur) */}
         <View style={styles.metaBand}>
-          <TouchableOpacity style={styles.metaCell} onPress={() => isAdmin && setLigneModal(true)} disabled={!isAdmin}>
-            <Text style={styles.metaCellLabel}>LIGNE</Text>
-            <Text style={[styles.metaCellValue, !audit?.ligne && { color: '#EF4444' }]}>
-              {audit?.ligne || (isAdmin ? 'Choisir…' : '—')}
+          <TouchableOpacity style={styles.metaCell}
+            onPress={() => isAdmin && setZoneModal(true)}
+            disabled={!isAdmin}>
+            <Text style={styles.metaCellLabel}>ZONE</Text>
+            <Text style={[styles.metaCellValue, !audit?.zone && { color: '#EF4444' }]}>
+              {audit?.zone || (isAdmin ? 'Choisir…' : '—')}
             </Text>
           </TouchableOpacity>
           <View style={styles.metaSep} />
-          <View style={styles.metaCell}>
-            <Text style={styles.metaCellLabel}>DATE</Text>
-            <Text style={styles.metaCellValue}>{audit?.audit_date ? new Date(audit.audit_date).toLocaleDateString() : new Date().toLocaleDateString()}</Text>
-          </View>
+          <TouchableOpacity style={styles.metaCell}
+            onPress={() => { if (canAnswer) { setTmpPilote(audit?.pilote_zone ?? ''); setPiloteModal(true); } }}
+            disabled={!canAnswer}>
+            <Text style={styles.metaCellLabel}>PILOTE ZONE</Text>
+            <Text style={[styles.metaCellValue, canAnswer && !audit?.pilote_zone && { color: '#EF4444' }]}>
+              {audit?.pilote_zone || (canAnswer ? 'Saisir…' : '—')}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.auditeurBand} onPress={() => isAdmin && setAuditeurModal(true)} disabled={!isAdmin}>
+        {/* Auditeur (admin) */}
+        <TouchableOpacity
+          style={styles.auditeurBand}
+          onPress={() => isAdmin && setAuditeurModal(true)}
+          disabled={!isAdmin}
+        >
           <Text style={styles.metaCellLabel}>AUDITEUR</Text>
           <Text style={[styles.metaCellValue, !audit?.auditeur_id && { color: '#EF4444' }]}>
-            {audit?.auditeur_id ? (audit.auditeur_id === user?.id ? 'Vous-même' : 'Assigné') : (isAdmin ? 'Choisir…' : 'Non assigné')}
+            {audit?.auditeur_id
+              ? (audit.auditeur_id === user?.id ? 'Vous-même' : 'Assigné')
+              : (isAdmin ? 'Choisir…' : 'Non assigné')}
           </Text>
         </TouchableOpacity>
 
@@ -242,88 +275,97 @@ export default function GembaAuditScreen() {
         {!canAnswer && (
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>⏳</Text>
-            <Text style={styles.emptyTitle}>En attente d'affectation</Text>
-            <Text style={styles.emptyText}>L'administrateur doit vous désigner comme auditeur.</Text>
+            <Text style={styles.emptyTitle}>
+              {isAdmin ? 'Assignez un auditeur' : "En attente d'affectation"}
+            </Text>
+            <Text style={styles.emptyText}>
+              {isAdmin
+                ? "Touchez le bandeau violet pour désigner l'auditeur."
+                : "L'administrateur doit vous désigner comme auditeur."}
+            </Text>
           </View>
         )}
 
-        {canAnswer && GEMBA_QUESTIONS.map((q, i) => {
-          const row = answers[q.id];
-          const err = errors[q.id];
-          const isNok = row?.answer === 'nok';
-          return (
-            <Animated.View key={q.id} entering={FadeInDown.delay(i * 30).duration(400)} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={styles.catChip}><Text style={styles.catChipText}>{q.category}</Text></View>
-                <Text style={styles.qIndex}>Q{i + 1}/{GEMBA_QUESTIONS.length}</Text>
+        {canAnswer && SECTIONS_5S.map((section) => (
+          <View key={section.step} style={styles.sectionBlock}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionBadge}><Text style={styles.sectionBadgeText}>{section.step}</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>{section.title}</Text>
+                <Text style={styles.sectionSubtitle}>{section.subtitle}</Text>
               </View>
-              <Text style={styles.qTitle}>{q.title}</Text>
-              {q.criteria.map((c, ci) => (
-                <View key={ci} style={styles.criterionRow}>
-                  <Text style={styles.bullet}>•</Text>
-                  <Text style={styles.criterionText}>{c}</Text>
-                </View>
-              ))}
+            </View>
 
-              <View style={styles.seg}>
-                {(['ok', 'nok', 'na'] as AnswerValue[]).map((val) => {
-                  const active = row?.answer === val;
-                  const color = val === 'ok' ? '#10B981' : val === 'nok' ? '#EF4444' : '#94A3B8';
-                  return (
-                    <TouchableOpacity key={val} onPress={() => setAnswer(q, val)}
-                      style={[styles.segBtn, active && { backgroundColor: color + '20', borderColor: color }]}>
-                      <Text style={[styles.segText, active && { color, fontWeight: '900' }]}>
-                        {val === 'na' ? 'N/A' : val.toUpperCase()}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+            {section.questions.map((q) => {
+              const row = answers[q.label];
+              const err = errors[q.label];
+              const isNok = row?.answer === 'nok';
+              return (
+                <Animated.View key={q.label} entering={FadeInDown.duration(400)} style={styles.card}>
+                  <View style={styles.qChip}><Text style={styles.qChipText}>{q.label}</Text></View>
+                  <Text style={styles.qTitle}>{q.text}</Text>
 
-              <Text style={styles.sectionLabel}>COMMENTAIRE{isNok && <Text style={styles.requiredTag}> — OBLIGATOIRE</Text>}</Text>
-              <TextInput placeholder={isNok ? 'Expliquez le problème…' : 'Commentaire (optionnel)'}
-                value={row?.comment ?? ''} onChangeText={(t) => setComment(q, t)}
-                onBlur={() => saveRow(q)} multiline
-                style={[styles.commentInput, isNok && !(row?.comment ?? '').trim() && err ? { borderColor: '#EF4444', borderWidth: 1.5 } : null]}
-                placeholderTextColor="#94A3B8" />
-
-              <Text style={styles.sectionLabel}>PILOTE{isNok && <Text style={styles.requiredTag}> — OBLIGATOIRE</Text>}</Text>
-              <TextInput placeholder="Nom du pilote" value={row?.pilot ?? ''} onChangeText={(t) => setPilot(q, t)} onBlur={() => saveRow(q)}
-                style={[styles.lineInput, isNok && !(row?.pilot ?? '').trim() && err ? { borderColor: '#EF4444', borderWidth: 1.5 } : null]}
-                placeholderTextColor="#94A3B8" />
-
-              <Text style={styles.sectionLabel}>DATE PRÉVUE{isNok && <Text style={styles.requiredTag}> — OBLIGATOIRE</Text>}</Text>
-              <TextInput placeholder="AAAA-MM-JJ" value={row?.due_date ?? ''} onChangeText={(t) => setDueDate(q, t)} onBlur={() => saveRow(q)}
-                style={[styles.lineInput, isNok && !(row?.due_date ?? '').trim() && err ? { borderColor: '#EF4444', borderWidth: 1.5 } : null]}
-                placeholderTextColor="#94A3B8" />
-
-              {isNok && (
-                <>
-                  <Text style={styles.sectionLabel}>PHOTO<Text style={styles.requiredTag}> — OBLIGATOIRE POUR NOK</Text></Text>
-                  {row?.image_url ? (
-                    <View style={styles.imageBox}>
-                      <Image source={{ uri: row.image_url }} style={styles.image} />
-                      <View style={styles.imageActions}>
-                        <TouchableOpacity style={styles.imageBtn} onPress={() => pickAndUploadImage(q)}>
-                          <Text style={styles.imageBtnText}>Remplacer</Text>
+                  <View style={styles.seg}>
+                    {(['ok', 'nok', 'na'] as AnswerValue[]).map((val) => {
+                      const active = row?.answer === val;
+                      const color = val === 'ok' ? '#10B981' : val === 'nok' ? '#EF4444' : '#94A3B8';
+                      return (
+                        <TouchableOpacity key={val} onPress={() => setAnswer(q, val)}
+                          style={[styles.segBtn, active && { backgroundColor: color + '20', borderColor: color }]}>
+                          <Text style={[styles.segText, active && { color, fontWeight: '900' }]}>
+                            {val === 'na' ? 'N/A' : val.toUpperCase()}
+                          </Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={[styles.imageBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]} onPress={() => removeImage(q)}>
-                          <Text style={[styles.imageBtnText, { color: '#DC2626' }]}>Supprimer</Text>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={styles.sectionLabel}>COMMENTAIRE{isNok && <Text style={styles.requiredTag}> — OBLIGATOIRE</Text>}</Text>
+                  <TextInput placeholder={isNok ? 'Expliquez le problème…' : 'Commentaire (optionnel)'}
+                    value={row?.comment ?? ''} onChangeText={(t) => setComment(q, t)}
+                    onBlur={() => saveRow(q)} multiline
+                    style={[styles.commentInput, isNok && !(row?.comment ?? '').trim() && err ? { borderColor: '#EF4444', borderWidth: 1.5 } : null]}
+                    placeholderTextColor="#94A3B8" />
+
+                  <Text style={styles.sectionLabel}>PILOTE{isNok && <Text style={styles.requiredTag}> — OBLIGATOIRE</Text>}</Text>
+                  <TextInput placeholder="Nom du pilote" value={row?.pilot ?? ''} onChangeText={(t) => setPilotQ(q, t)} onBlur={() => saveRow(q)}
+                    style={[styles.lineInput, isNok && !(row?.pilot ?? '').trim() && err ? { borderColor: '#EF4444', borderWidth: 1.5 } : null]}
+                    placeholderTextColor="#94A3B8" />
+
+                  <Text style={styles.sectionLabel}>DATE PRÉVUE{isNok && <Text style={styles.requiredTag}> — OBLIGATOIRE</Text>}</Text>
+                  <TextInput placeholder="AAAA-MM-JJ" value={row?.due_date ?? ''} onChangeText={(t) => setDueDate(q, t)} onBlur={() => saveRow(q)}
+                    style={[styles.lineInput, isNok && !(row?.due_date ?? '').trim() && err ? { borderColor: '#EF4444', borderWidth: 1.5 } : null]}
+                    placeholderTextColor="#94A3B8" />
+
+                  {isNok && (
+                    <>
+                      <Text style={styles.sectionLabel}>PHOTO<Text style={styles.requiredTag}> — OBLIGATOIRE POUR NOK</Text></Text>
+                      {row?.image_url ? (
+                        <View style={styles.imageBox}>
+                          <Image source={{ uri: row.image_url }} style={styles.image} />
+                          <View style={styles.imageActions}>
+                            <TouchableOpacity style={styles.imageBtn} onPress={() => pickAndUploadImage(q)}>
+                              <Text style={styles.imageBtnText}>Remplacer</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.imageBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]} onPress={() => removeImage(q)}>
+                              <Text style={[styles.imageBtnText, { color: '#DC2626' }]}>Supprimer</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : (
+                        <TouchableOpacity style={styles.uploadBtn} onPress={() => pickAndUploadImage(q)} disabled={uploadingFor === q.label}>
+                          {uploadingFor === q.label ? <ActivityIndicator color="#2563EB" /> : <Text style={styles.uploadBtnText}>📷 Ajouter une photo</Text>}
                         </TouchableOpacity>
-                      </View>
-                    </View>
-                  ) : (
-                    <TouchableOpacity style={styles.uploadBtn} onPress={() => pickAndUploadImage(q)} disabled={uploadingFor === q.id}>
-                      {uploadingFor === q.id ? <ActivityIndicator color="#2563EB" /> : <Text style={styles.uploadBtnText}>📷 Ajouter une photo</Text>}
-                    </TouchableOpacity>
+                      )}
+                    </>
                   )}
-                </>
-              )}
 
-              {err ? <Text style={styles.errorText}>{err}</Text> : null}
-            </Animated.View>
-          );
-        })}
+                  {err ? <Text style={styles.errorText}>{err}</Text> : null}
+                </Animated.View>
+              );
+            })}
+          </View>
+        ))}
 
         {canAnswer && !submitted && (
           <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} disabled={submitBusy}>
@@ -336,32 +378,51 @@ export default function GembaAuditScreen() {
         {submitted && (
           <View style={styles.successCard}>
             <Text style={styles.successIcon}>✅</Text>
-            <Text style={styles.successTitle}>Audit Gemba soumis</Text>
+            <Text style={styles.successTitle}>Audit 5S soumis</Text>
           </View>
         )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Ligne modal */}
-      <Modal visible={ligneModal} transparent animationType="fade" onRequestClose={() => setLigneModal(false)}>
+      {/* Zone modal (admin) */}
+      <Modal visible={zoneModal} transparent animationType="fade" onRequestClose={() => setZoneModal(false)}>
         <View style={styles.pickerBackdrop}>
           <View style={styles.pickerCard}>
-            <Text style={styles.pickerTitle}>Choisir une ligne</Text>
+            <Text style={styles.pickerTitle}>Choisir une zone</Text>
             <ScrollView style={{ maxHeight: 400 }}>
               {LIGNES.map((l) => {
-                const active = audit?.ligne === l;
+                const active = audit?.zone === l;
                 return (
-                  <TouchableOpacity key={l} style={[styles.pickerRow, active && styles.pickerRowActive]} onPress={() => setLigne(l)}>
+                  <TouchableOpacity key={l} style={[styles.pickerRow, active && styles.pickerRowActive]} onPress={() => setZone(l)}>
                     <Text style={[styles.pickerText, active && styles.pickerTextActive]}>{l}</Text>
                     {active && <Text style={styles.pickerCheck}>✓</Text>}
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
-            <TouchableOpacity style={styles.pickerClose} onPress={() => setLigneModal(false)}>
+            <TouchableOpacity style={styles.pickerClose} onPress={() => setZoneModal(false)}>
               <Text style={styles.pickerCloseText}>Fermer</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Pilote modal (auditeur) */}
+      <Modal visible={piloteModal} transparent animationType="fade" onRequestClose={() => setPiloteModal(false)}>
+        <View style={styles.pickerBackdrop}>
+          <View style={styles.pickerCard}>
+            <Text style={styles.pickerTitle}>Pilote de la zone</Text>
+            <TextInput value={tmpPilote} onChangeText={setTmpPilote} placeholder="Nom du pilote"
+              placeholderTextColor="#94A3B8" style={styles.pickerInput} autoFocus />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+              <TouchableOpacity style={[styles.pickerBtn, { backgroundColor: '#F1F5F9' }]} onPress={() => setPiloteModal(false)}>
+                <Text style={{ color: '#475569', fontWeight: '800' }}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.pickerBtn, { backgroundColor: '#2563EB' }]} onPress={savePilote}>
+                <Text style={{ color: '#FFF', fontWeight: '800' }}>Enregistrer</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -402,20 +463,21 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 48, marginBottom: 12 },
   emptyTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A' },
   emptyText: { fontSize: 14, color: '#64748B', textAlign: 'center', marginTop: 6 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 18, marginBottom: 14, shadowColor: '#0F172A', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  catChip: { backgroundColor: 'rgba(37,99,235,0.1)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  catChipText: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5, color: '#2563EB', textTransform: 'uppercase' },
-  qIndex: { fontSize: 11, fontWeight: '800', color: '#94A3B8', letterSpacing: 1 },
-  qTitle: { fontSize: 17, fontWeight: '900', color: '#0F172A', marginBottom: 10, lineHeight: 23 },
-  criterionRow: { flexDirection: 'row', marginBottom: 5 },
-  bullet: { color: '#2563EB', fontWeight: '900', marginRight: 8, fontSize: 14 },
-  criterionText: { flex: 1, fontSize: 13, color: '#475569', lineHeight: 19 },
+  sectionBlock: { marginBottom: 22 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  sectionBadge: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  sectionBadgeText: { color: '#FFF', fontWeight: '900', fontSize: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
+  sectionSubtitle: { fontSize: 12, color: '#64748B', fontStyle: 'italic', marginTop: 2 },
+  card: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 12, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  qChip: { alignSelf: 'flex-start', backgroundColor: 'rgba(37,99,235,0.1)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 8 },
+  qChipText: { fontSize: 12, fontWeight: '900', color: '#2563EB', letterSpacing: 1 },
+  qTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A', lineHeight: 20, marginBottom: 10 },
   sectionLabel: { fontSize: 11, fontWeight: '900', color: '#64748B', letterSpacing: 1.5, marginTop: 14, marginBottom: 6 },
   requiredTag: { color: '#EF4444', fontWeight: '900' },
   seg: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  segBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1.5, borderColor: '#E2E8F0', alignItems: 'center', backgroundColor: '#F8FAFC' },
-  segText: { fontSize: 13, fontWeight: '800', letterSpacing: 1, color: '#94A3B8' },
+  segBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: '#E2E8F0', alignItems: 'center', backgroundColor: '#F8FAFC' },
+  segText: { fontSize: 12, fontWeight: '800', letterSpacing: 1, color: '#94A3B8' },
   commentInput: { borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, color: '#0F172A', minHeight: 55, textAlignVertical: 'top' },
   lineInput: { borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, color: '#0F172A' },
   errorText: { color: '#EF4444', fontSize: 12, fontWeight: '700', marginTop: 6 },
@@ -442,4 +504,6 @@ const styles = StyleSheet.create({
   pickerCheck: { fontSize: 16, fontWeight: '900', color: '#2563EB' },
   pickerClose: { marginTop: 12, paddingVertical: 12, backgroundColor: '#F1F5F9', borderRadius: 10, alignItems: 'center' },
   pickerCloseText: { color: '#475569', fontWeight: '800' },
+  pickerInput: { borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#F8FAFC', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#0F172A' },
+  pickerBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
 });
