@@ -6,31 +6,16 @@
     "orientation": "portrait",
     "scheme": "gemba5s",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "plugins": [
       "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "backgroundColor": "#FFFFFF",
-          "image": "./assets/splash-icon.png",
-          "imageWidth": 200
-        }
-      ],
-      "expo-status-bar",
-      "expo-secure-store",
-      "expo-sharing"
+      "expo-secure-store"
     ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gemba.app5s"
     },
     "android": {
-      "package": "com.gemba.app5s",
-      "adaptiveIcon": {
-        "backgroundColor": "#FFFFFF",
-        "foregroundImage": "./assets/adaptive-icon.png"
-      }
+      "package": "com.gemba.app5s"
     },
     "web": {
       "bundler": "metro",

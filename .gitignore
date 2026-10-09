@@ -16,6 +16,13 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+android/
+ios/
+
+# Build artifacts
+*.aab
+*.apk
+*.ipa
 
 # Metro
 .metro-health-check*
@@ -29,7 +36,7 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# Local env files
+# Env files
 .env
 .env.local
 .env.*.local
@@ -45,10 +52,3 @@ yarn-error.log*
 .idea/
 *.swp
 *.swo
-.env
-.env.local
-.env
-.env.local
-*.aab
-*.apk
-*.ipa
