@@ -49,3 +49,6 @@ yarn-error.log*
 .env.local
 .env
 .env.local
+*.aab
+*.apk
+*.ipa
