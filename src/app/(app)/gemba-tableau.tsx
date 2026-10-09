@@ -1,71 +1,84 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  ActivityIndicator,
-  RefreshControl,
-  TouchableOpacity,
-  Image,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator,
+  RefreshControl, TouchableOpacity, Image, Alert,
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useFocusEffect } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import {
-  getMyCompanyId,
-  getMyRole,
-  listSubmissions,
-  Submission,
-  Role,
+  getMyCompanyId, getMyRole, listSubmissions, Submission, Role,
 } from '../../features/audit/auditService';
+import { getEffectiveGemba } from '../../features/audit/contentService';
+import {
+  exportSingleAuditPdf, exportSingleAuditExcel,
+} from '../../features/audit/exportService';
 import { GEMBA_QUESTIONS } from '../../features/audit/questions';
 
 const CATEGORY_COLORS: Record<string, string> = {
   "Main d'œuvre": '#2563EB',
-  'Matière': '#7C3AED',
-  'Méthode': '#0891B2',
-  'Milieu': '#059669',
-  'Machine': '#F59E0B',
+  Matière: '#7C3AED',
+  Méthode: '#0891B2',
+  Milieu: '#059669',
+  Machine: '#F59E0B',
 };
 
 export default function GembaTableauScreen() {
   const [role, setRole] = useState<Role>('member');
+  const [companyId, setCompanyId] = useState<string | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
 
   const isAdmin = role === 'owner' || role === 'admin';
 
   const load = useCallback(async () => {
     const cid = await getMyCompanyId();
+    setCompanyId(cid);
     if (!cid) return;
     const r = await getMyRole(cid);
     setRole(r);
     if (r !== 'owner' && r !== 'admin') return;
-    const subs = await listSubmissions(cid, 'gemba');
-    setSubmissions(subs);
+    setSubmissions(await listSubmissions(cid, 'gemba'));
   }, []);
 
   useEffect(() => {
-    (async () => {
-      await load();
-      setLoading(false);
-    })();
+    (async () => { await load(); setLoading(false); })();
   }, [load]);
 
   useFocusEffect(
-    useCallback(() => {
-      (async () => {
-        await load();
-      })();
-    }, [load])
+    useCallback(() => { (async () => { await load(); })(); }, [load])
   );
 
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
     setRefreshing(false);
+  };
+
+  const handleExport = async (s: Submission, kind: 'pdf' | 'xlsx') => {
+    if (!companyId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setExportingId(`${s.audit_id}-${kind}`);
+    try {
+      let questions = GEMBA_QUESTIONS;
+      try {
+        const res = await getEffectiveGemba(companyId);
+        if (res.questions && res.questions.length > 0) questions = res.questions;
+      } catch { /* keep defaults */ }
+
+      if (kind === 'pdf') {
+        await exportSingleAuditPdf(s, 'gemba', questions, undefined, companyId);
+      } else {
+        await exportSingleAuditExcel(s, 'gemba', questions, undefined, companyId);
+      }
+    } catch (e: any) {
+      Alert.alert('Export échoué', e?.message ?? String(e));
+    } finally {
+      setExportingId(null);
+    }
   };
 
   if (loading) {
@@ -81,9 +94,6 @@ export default function GembaTableauScreen() {
       <View style={styles.center}>
         <Text style={styles.lockIcon}>🔒</Text>
         <Text style={styles.lockTitle}>Accès réservé</Text>
-        <Text style={styles.lockText}>
-          Seuls les administrateurs peuvent consulter le tableau des audits.
-        </Text>
       </View>
     );
   }
@@ -104,9 +114,6 @@ export default function GembaTableauScreen() {
         <View style={styles.emptyBox}>
           <Text style={styles.emptyIcon}>📋</Text>
           <Text style={styles.emptyTitle}>Aucun audit pour le moment</Text>
-          <Text style={styles.emptyText}>
-            Les audits apparaîtront ici dès qu'ils seront créés.
-          </Text>
         </View>
       )}
 
@@ -117,6 +124,8 @@ export default function GembaTableauScreen() {
         const nok = s.answers.filter((a) => a.answer === 'nok').length;
         const ok = s.answers.filter((a) => a.answer === 'ok').length;
         const na = s.answers.filter((a) => a.answer === 'na').length;
+        const busyPdf = exportingId === `${s.audit_id}-pdf`;
+        const busyXlsx = exportingId === `${s.audit_id}-xlsx`;
 
         return (
           <Animated.View
@@ -124,10 +133,15 @@ export default function GembaTableauScreen() {
             entering={FadeInDown.delay(i * 40).duration(400)}
             style={styles.card}
           >
-            <TouchableOpacity activeOpacity={0.85} onPress={() => setOpenId(open ? null : s.audit_id)}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setOpenId(open ? null : s.audit_id)}
+            >
               <View style={styles.cardHead}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.cardLigne}>{s.ligne ?? s.zone ?? 'Ligne non définie'}</Text>
+                  <Text style={styles.cardLigne}>
+                    {s.ligne ?? s.zone ?? 'Ligne non définie'}
+                  </Text>
                   <Text style={styles.cardDate}>
                     {s.audit_date
                       ? new Date(s.audit_date).toLocaleDateString()
@@ -171,6 +185,37 @@ export default function GembaTableauScreen() {
               </Text>
             </TouchableOpacity>
 
+            <View style={styles.cardExportRow}>
+              <TouchableOpacity
+                style={[styles.cardExportBtn, { borderColor: '#DC2626' }]}
+                onPress={() => handleExport(s, 'pdf')}
+                disabled={exportingId !== null}
+              >
+                {busyPdf ? (
+                  <ActivityIndicator color="#DC2626" size="small" />
+                ) : (
+                  <>
+                    <Text style={styles.cardExportIcon}>📄</Text>
+                    <Text style={[styles.cardExportText, { color: '#DC2626' }]}>PDF</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.cardExportBtn, { borderColor: '#059669' }]}
+                onPress={() => handleExport(s, 'xlsx')}
+                disabled={exportingId !== null}
+              >
+                {busyXlsx ? (
+                  <ActivityIndicator color="#059669" size="small" />
+                ) : (
+                  <>
+                    <Text style={styles.cardExportIcon}>📊</Text>
+                    <Text style={[styles.cardExportText, { color: '#059669' }]}>Excel</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
             {open && (
               <View style={styles.detailBox}>
                 {GEMBA_QUESTIONS.map((q, qi) => {
@@ -205,25 +250,32 @@ export default function GembaTableauScreen() {
                           </View>
                         )}
                         {!row?.answer && row?.status === 'planned' && (
-                          <View style={[styles.answerChip, { backgroundColor: 'rgba(124,58,237,0.15)' }]}>
-                            <Text style={[styles.answerChipText, { color: '#7C3AED' }]}>PLANIFIÉ</Text>
+                          <View
+                            style={[
+                              styles.answerChip,
+                              { backgroundColor: 'rgba(124,58,237,0.15)' },
+                            ]}
+                          >
+                            <Text style={[styles.answerChipText, { color: '#7C3AED' }]}>
+                              PLANIFIÉ
+                            </Text>
                           </View>
                         )}
                       </View>
-
                       <Text style={styles.detailTitle}>{q.title}</Text>
-
                       {row?.comment ? (
                         <Text style={styles.detailComment}>💬 {row.comment}</Text>
                       ) : null}
-
                       {(row?.pilot || row?.due_date) && (
                         <View style={styles.metaTags}>
-                          {row?.pilot ? <Text style={styles.metaTag}>👤 {row.pilot}</Text> : null}
-                          {row?.due_date ? <Text style={styles.metaTag}>📅 {row.due_date}</Text> : null}
+                          {row?.pilot ? (
+                            <Text style={styles.metaTag}>👤 {row.pilot}</Text>
+                          ) : null}
+                          {row?.due_date ? (
+                            <Text style={styles.metaTag}>📅 {row.due_date}</Text>
+                          ) : null}
                         </View>
                       )}
-
                       {row?.image_url ? (
                         <Image source={{ uri: row.image_url }} style={styles.evidence} />
                       ) : null}
@@ -253,13 +305,11 @@ const styles = StyleSheet.create({
   },
   lockIcon: { fontSize: 48, marginBottom: 12 },
   lockTitle: { fontSize: 20, fontWeight: '900', color: '#0F172A' },
-  lockText: { fontSize: 14, color: '#64748B', textAlign: 'center', marginTop: 8 },
-  pageTitle: { fontSize: 26, fontWeight: '900', color: '#0F172A', letterSpacing: 0.5 },
+  pageTitle: { fontSize: 26, fontWeight: '900', color: '#0F172A' },
   pageSub: { fontSize: 13, color: '#64748B', marginTop: 4, marginBottom: 20, fontWeight: '600' },
   emptyBox: { alignItems: 'center', paddingVertical: 60 },
   emptyIcon: { fontSize: 48, marginBottom: 12 },
-  emptyTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A', marginBottom: 6 },
-  emptyText: { fontSize: 14, color: '#64748B', textAlign: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A' },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
@@ -271,27 +321,39 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
   },
   cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardLigne: { fontSize: 20, fontWeight: '900', color: '#0F172A', letterSpacing: 0.5 },
+  cardLigne: { fontSize: 20, fontWeight: '900', color: '#0F172A' },
   cardDate: { fontSize: 12, color: '#64748B', marginTop: 4, fontWeight: '600' },
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   statusOk: { backgroundColor: 'rgba(16,185,129,0.15)' },
   statusDraft: { backgroundColor: 'rgba(148,163,184,0.2)' },
   statusText: { fontSize: 10, fontWeight: '900', letterSpacing: 1.2, color: '#1E293B' },
   statsRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  statChip: { flex: 1, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#F1F5F9' },
+  statChip: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+  },
   statOk: { backgroundColor: 'rgba(16,185,129,0.1)' },
   statNok: { backgroundColor: 'rgba(239,68,68,0.08)' },
   statNa: { backgroundColor: 'rgba(148,163,184,0.12)' },
   statLabel: { fontSize: 9, fontWeight: '900', color: '#94A3B8', letterSpacing: 1.2 },
   statValue: { fontSize: 16, fontWeight: '900', color: '#0F172A', marginTop: 2 },
-  expandHint: {
-    marginTop: 12,
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#2563EB',
-    textAlign: 'center',
-    letterSpacing: 0.5,
+  expandHint: { marginTop: 12, fontSize: 12, fontWeight: '800', color: '#2563EB', textAlign: 'center' },
+  cardExportRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  cardExportBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    backgroundColor: '#FFFFFF',
   },
+  cardExportIcon: { fontSize: 14, marginRight: 6 },
+  cardExportText: { fontWeight: '900', fontSize: 12, letterSpacing: 0.5 },
   detailBox: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#E2E8F0' },
   detailRow: {
     marginBottom: 14,
@@ -299,14 +361,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
-  detailHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' },
+  detailHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+    flexWrap: 'wrap',
+  },
   detailCat: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   detailCatText: { fontSize: 9, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase' },
-  detailIndex: { fontSize: 11, fontWeight: '800', color: '#94A3B8', letterSpacing: 0.5 },
+  detailIndex: { fontSize: 11, fontWeight: '800', color: '#94A3B8' },
   answerChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   answerChipText: { fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   detailTitle: { fontSize: 14, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
-  detailComment: { fontSize: 12, color: '#475569', marginTop: 4, fontStyle: 'italic', lineHeight: 17 },
+  detailComment: { fontSize: 12, color: '#475569', marginTop: 4, fontStyle: 'italic' },
   metaTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   metaTag: {
     fontSize: 11,

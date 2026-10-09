@@ -10,13 +10,14 @@ import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../auth/AuthProvider';
-import { AuditQuestion } from '../questions';
-import { getEffectiveGemba, listLignes } from '../contentService';
+import { GEMBA_QUESTIONS, AuditQuestion } from '../questions';
+import { LIGNES } from '../lignes';
 import {
   getOrCreateDraftAudit, getMyCompanyId, getMyRole,
   getAuditAnswers, answerQuestion, submitAudit,
   updateAuditHeader, AnswerRow, AuditMeta, Role,
 } from '../auditService';
+import { supabase } from '../../../lib/supabase';
 import { uploadAuditImage } from '../../../lib/imageUpload';
 import AuditeurPickerModal from '../components/AuditeurPickerModal';
 
@@ -24,13 +25,10 @@ type AnswerValue = 'ok' | 'nok' | 'na';
 
 export default function GembaAuditScreen() {
   const { user } = useAuth();
-
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [role, setRole] = useState<Role>('member');
   const [audit, setAudit] = useState<AuditMeta | null>(null);
   const [answers, setAnswers] = useState<Record<string, AnswerRow>>({});
-  const [gembaQuestions, setGembaQuestions] = useState<AuditQuestion[]>([]);
-  const [lignesList, setLignesList] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
@@ -43,7 +41,6 @@ export default function GembaAuditScreen() {
 
   const isAdmin = role === 'owner' || role === 'admin';
   const isAuditeur = !!user?.id && audit?.auditeur_id === user.id;
-  const canAnswer = isAuditeur;
 
   const load = useCallback(async () => {
     try {
@@ -54,19 +51,11 @@ export default function GembaAuditScreen() {
       setRole(r);
       const a = await getOrCreateDraftAudit(cid, 'gemba');
       setAudit(a);
-      const [rows, qResult, lResult] = await Promise.all([
-        getAuditAnswers(a.id),
-        getEffectiveGemba(cid),
-        listLignes(cid),
-      ]);
-      setGembaQuestions(qResult.questions);
-      setLignesList(lResult);
+      const rows = await getAuditAnswers(a.id);
       const map: Record<string, AnswerRow> = {};
       rows.forEach((row) => (map[row.question_id] = row));
       setAnswers(map);
-    } catch (e: any) {
-      Alert.alert('Erreur', e.message);
-    }
+    } catch (e: any) { Alert.alert('Erreur', e.message); }
   }, []);
 
   useEffect(() => { (async () => { await load(); setLoading(false); })(); }, [load]);
@@ -92,10 +81,10 @@ export default function GembaAuditScreen() {
   };
 
   const myProgress = useMemo(() => {
-    const total = gembaQuestions.length;
-    const done = gembaQuestions.filter((q) => answers[q.id]?.status === 'done').length;
+    const total = GEMBA_QUESTIONS.length;
+    const done = GEMBA_QUESTIONS.filter((q) => answers[q.id]?.status === 'done').length;
     return { total, done, pct: total ? done / total : 0 };
-  }, [gembaQuestions, answers]);
+  }, [answers]);
 
   const patchRow = (q: AuditQuestion, patch: Partial<AnswerRow>) => {
     setAnswers((s) => ({
@@ -119,7 +108,7 @@ export default function GembaAuditScreen() {
     patchRow(q, { answer: v, status: 'done' });
   };
   const setComment = (q: AuditQuestion, t: string) => { setErrors((e) => ({ ...e, [q.id]: '' })); patchRow(q, { comment: t }); };
-  const setPilotQ = (q: AuditQuestion, t: string) => { setErrors((e) => ({ ...e, [q.id]: '' })); patchRow(q, { pilot: t }); };
+  const setPilot = (q: AuditQuestion, t: string) => { setErrors((e) => ({ ...e, [q.id]: '' })); patchRow(q, { pilot: t }); };
   const setDueDate = (q: AuditQuestion, t: string) => { setErrors((e) => ({ ...e, [q.id]: '' })); patchRow(q, { due_date: t }); };
 
   const pickAndUploadImage = async (q: AuditQuestion) => {
@@ -133,8 +122,9 @@ export default function GembaAuditScreen() {
       const url = await uploadAuditImage(user.id, audit.id, q.id, res.assets[0].uri);
       patchRow(q, { image_url: url });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e: any) { Alert.alert('Upload échoué', e.message); }
-    finally { setUploadingFor(null); }
+    } catch (e: any) {
+      Alert.alert('Upload échoué', e.message);
+    } finally { setUploadingFor(null); }
   };
 
   const removeImage = (q: AuditQuestion) => patchRow(q, { image_url: null });
@@ -157,8 +147,7 @@ export default function GembaAuditScreen() {
     try {
       await answerQuestion({
         auditId: audit.id, questionId: q.id, category: q.category,
-        answer: row.answer, comment: row.comment ?? '',
-        imageUrl: row.image_url,
+        answer: row.answer, comment: row.comment ?? '', imageUrl: row.image_url,
       });
     } catch (e: any) { console.warn(e); }
   };
@@ -166,7 +155,7 @@ export default function GembaAuditScreen() {
   const handleSubmit = async () => {
     if (!audit) return;
     const problems: Record<string, string> = {};
-    for (const q of gembaQuestions) {
+    for (const q of GEMBA_QUESTIONS) {
       const row = answers[q.id];
       if (!row?.answer) { problems[q.id] = 'Réponse requise'; continue; }
       if (row.answer === 'nok') {
@@ -186,7 +175,7 @@ export default function GembaAuditScreen() {
     }
     setSubmitBusy(true);
     try {
-      for (const q of gembaQuestions) await saveRow(q);
+      for (const q of GEMBA_QUESTIONS) await saveRow(q);
       await submitAudit(audit.id, 100);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSubmitted(true);
@@ -200,25 +189,23 @@ export default function GembaAuditScreen() {
 
   if (loading) return (<View style={styles.center}><ActivityIndicator color="#2563EB" size="large" /></View>);
 
+  const canAnswer = isAuditeur || isAdmin;
+
   return (
     <View style={styles.root}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle}>Audit Gemba</Text>
-            <Text style={styles.headerSub}>
-              {isAdmin ? 'Mode administrateur' : (isAuditeur ? 'Auditeur' : 'Observateur')}
-            </Text>
+            <Text style={styles.headerSub}>{isAdmin ? 'Mode administrateur' : 'Auditeur'}</Text>
           </View>
           <View style={[styles.rolePill, isAdmin ? styles.rolePillAdmin : styles.rolePillMember]}>
-            <Text style={styles.rolePillText}>{isAdmin ? 'ADMIN' : (isAuditeur ? 'AUDITEUR' : '—')}</Text>
+            <Text style={styles.rolePillText}>{isAdmin ? 'ADMIN' : 'AUDITEUR'}</Text>
           </View>
         </View>
 
         <View style={styles.metaBand}>
-          <TouchableOpacity style={styles.metaCell}
-            onPress={() => isAdmin && setLigneModal(true)}
-            disabled={!isAdmin}>
+          <TouchableOpacity style={styles.metaCell} onPress={() => isAdmin && setLigneModal(true)} disabled={!isAdmin}>
             <Text style={styles.metaCellLabel}>LIGNE</Text>
             <Text style={[styles.metaCellValue, !audit?.ligne && { color: '#EF4444' }]}>
               {audit?.ligne || (isAdmin ? 'Choisir…' : '—')}
@@ -227,20 +214,14 @@ export default function GembaAuditScreen() {
           <View style={styles.metaSep} />
           <View style={styles.metaCell}>
             <Text style={styles.metaCellLabel}>DATE</Text>
-            <Text style={styles.metaCellValue}>
-              {audit?.audit_date ? new Date(audit.audit_date).toLocaleDateString() : new Date().toLocaleDateString()}
-            </Text>
+            <Text style={styles.metaCellValue}>{audit?.audit_date ? new Date(audit.audit_date).toLocaleDateString() : new Date().toLocaleDateString()}</Text>
           </View>
         </View>
 
-        <TouchableOpacity style={styles.auditeurBand}
-          onPress={() => isAdmin && setAuditeurModal(true)}
-          disabled={!isAdmin}>
+        <TouchableOpacity style={styles.auditeurBand} onPress={() => isAdmin && setAuditeurModal(true)} disabled={!isAdmin}>
           <Text style={styles.metaCellLabel}>AUDITEUR</Text>
           <Text style={[styles.metaCellValue, !audit?.auditeur_id && { color: '#EF4444' }]}>
-            {audit?.auditeur_id
-              ? (audit.auditeur_id === user?.id ? 'Vous-même' : 'Assigné')
-              : (isAdmin ? 'Choisir…' : 'Non assigné')}
+            {audit?.auditeur_id ? (audit.auditeur_id === user?.id ? 'Vous-même' : 'Assigné') : (isAdmin ? 'Choisir…' : 'Non assigné')}
           </Text>
         </TouchableOpacity>
 
@@ -261,18 +242,12 @@ export default function GembaAuditScreen() {
         {!canAnswer && (
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>⏳</Text>
-            <Text style={styles.emptyTitle}>
-              {isAdmin ? 'Assignez un auditeur' : "En attente d'affectation"}
-            </Text>
-            <Text style={styles.emptyText}>
-              {isAdmin
-                ? "Touchez le bandeau violet pour désigner l'auditeur."
-                : "L'administrateur doit vous désigner comme auditeur."}
-            </Text>
+            <Text style={styles.emptyTitle}>En attente d'affectation</Text>
+            <Text style={styles.emptyText}>L'administrateur doit vous désigner comme auditeur.</Text>
           </View>
         )}
 
-        {canAnswer && gembaQuestions.map((q, i) => {
+        {canAnswer && GEMBA_QUESTIONS.map((q, i) => {
           const row = answers[q.id];
           const err = errors[q.id];
           const isNok = row?.answer === 'nok';
@@ -280,7 +255,7 @@ export default function GembaAuditScreen() {
             <Animated.View key={q.id} entering={FadeInDown.delay(i * 30).duration(400)} style={styles.card}>
               <View style={styles.cardHeader}>
                 <View style={styles.catChip}><Text style={styles.catChipText}>{q.category}</Text></View>
-                <Text style={styles.qIndex}>Q{i + 1}/{gembaQuestions.length}</Text>
+                <Text style={styles.qIndex}>Q{i + 1}/{GEMBA_QUESTIONS.length}</Text>
               </View>
               <Text style={styles.qTitle}>{q.title}</Text>
               {q.criteria.map((c, ci) => (
@@ -313,7 +288,7 @@ export default function GembaAuditScreen() {
                 placeholderTextColor="#94A3B8" />
 
               <Text style={styles.sectionLabel}>PILOTE{isNok && <Text style={styles.requiredTag}> — OBLIGATOIRE</Text>}</Text>
-              <TextInput placeholder="Nom du pilote" value={row?.pilot ?? ''} onChangeText={(t) => setPilotQ(q, t)} onBlur={() => saveRow(q)}
+              <TextInput placeholder="Nom du pilote" value={row?.pilot ?? ''} onChangeText={(t) => setPilot(q, t)} onBlur={() => saveRow(q)}
                 style={[styles.lineInput, isNok && !(row?.pilot ?? '').trim() && err ? { borderColor: '#EF4444', borderWidth: 1.5 } : null]}
                 placeholderTextColor="#94A3B8" />
 
@@ -374,7 +349,7 @@ export default function GembaAuditScreen() {
           <View style={styles.pickerCard}>
             <Text style={styles.pickerTitle}>Choisir une ligne</Text>
             <ScrollView style={{ maxHeight: 400 }}>
-              {lignesList.map((l) => {
+              {LIGNES.map((l) => {
                 const active = audit?.ligne === l;
                 return (
                   <TouchableOpacity key={l} style={[styles.pickerRow, active && styles.pickerRowActive]} onPress={() => setLigne(l)}>

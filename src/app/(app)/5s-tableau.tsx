@@ -1,48 +1,101 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator,
-  RefreshControl, TouchableOpacity, Image,
+  RefreshControl, TouchableOpacity, Image, Alert,
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useFocusEffect } from 'expo-router';
-import { getMyCompanyId, getMyRole, listSubmissions, Role, GembaSubmission } from '../../features/audit/auditService';
+import * as Haptics from 'expo-haptics';
+import {
+  getMyCompanyId, getMyRole, listSubmissions, Submission, Role,
+} from '../../features/audit/auditService';
+import { getEffective5S } from '../../features/audit/contentService';
+import {
+  exportSingleAuditPdf, exportSingleAuditExcel,
+} from '../../features/audit/exportService';
 import { SECTIONS_5S } from '../../features/audit/questions5s';
 
 export default function Tableau5SScreen() {
   const [role, setRole] = useState<Role>('member');
-  const [submissions, setSubmissions] = useState<GembaSubmission[]>([]);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
 
   const isAdmin = role === 'owner' || role === 'admin';
 
   const load = useCallback(async () => {
     const cid = await getMyCompanyId();
+    setCompanyId(cid);
     if (!cid) return;
     const r = await getMyRole(cid);
     setRole(r);
     if (r !== 'owner' && r !== 'admin') return;
-    const subs = await listSubmissions(cid, '5s');
-    setSubmissions(subs);
+    setSubmissions(await listSubmissions(cid, '5s'));
   }, []);
 
-  useEffect(() => { (async () => { await load(); setLoading(false); })(); }, [load]);
-  useFocusEffect(useCallback(() => { (async () => { await load(); })(); }, [load]));
+  useEffect(() => {
+    (async () => { await load(); setLoading(false); })();
+  }, [load]);
 
-  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
-
-  if (loading) return (<View style={styles.center}><ActivityIndicator color="#2563EB" size="large" /></View>);
-  if (!isAdmin) return (
-    <View style={styles.center}>
-      <Text style={styles.lockIcon}>🔒</Text>
-      <Text style={styles.lockTitle}>Accès réservé</Text>
-    </View>
+  useFocusEffect(
+    useCallback(() => { (async () => { await load(); })(); }, [load])
   );
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
+
+  const handleExport = async (s: Submission, kind: 'pdf' | 'xlsx') => {
+    if (!companyId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setExportingId(`${s.audit_id}-${kind}`);
+    try {
+      let sections = SECTIONS_5S;
+      try {
+        const res = await getEffective5S(companyId);
+        if (res.sections && res.sections.length > 0) sections = res.sections;
+      } catch { /* keep defaults */ }
+
+      if (kind === 'pdf') {
+        await exportSingleAuditPdf(s, '5s', undefined, sections, companyId);
+      } else {
+        await exportSingleAuditExcel(s, '5s', undefined, sections, companyId);
+      }
+    } catch (e: any) {
+      Alert.alert('Export échoué', e?.message ?? String(e));
+    } finally {
+      setExportingId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color="#2563EB" size="large" />
+      </View>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.lockIcon}>🔒</Text>
+        <Text style={styles.lockTitle}>Accès réservé</Text>
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.scroll}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.scroll}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    >
       <Text style={styles.pageTitle}>Tableau 5S</Text>
       <Text style={styles.pageSub}>{submissions.length} audit(s) 5S</Text>
 
@@ -60,50 +113,117 @@ export default function Tableau5SScreen() {
         const nok = s.answers.filter((a) => a.answer === 'nok').length;
         const ok = s.answers.filter((a) => a.answer === 'ok').length;
         const na = s.answers.filter((a) => a.answer === 'na').length;
+        const busyPdf = exportingId === `${s.audit_id}-pdf`;
+        const busyXlsx = exportingId === `${s.audit_id}-xlsx`;
 
         return (
-          <Animated.View key={s.audit_id} entering={FadeInDown.delay(i * 40).duration(400)} style={styles.card}>
-            <TouchableOpacity activeOpacity={0.85} onPress={() => setOpenId(open ? null : s.audit_id)}>
+          <Animated.View
+            key={s.audit_id}
+            entering={FadeInDown.delay(i * 40).duration(400)}
+            style={styles.card}
+          >
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setOpenId(open ? null : s.audit_id)}
+            >
               <View style={styles.cardHead}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.cardLigne}>{s.zone ?? s.ligne ?? 'Zone non définie'}</Text>
+                  <Text style={styles.cardLigne}>
+                    {s.zone ?? s.ligne ?? 'Zone non définie'}
+                  </Text>
                   <Text style={styles.cardDate}>
-                    {s.audit_date ? new Date(s.audit_date).toLocaleDateString() : new Date(s.created_at).toLocaleDateString()}
-                    {s.auditeur_email ? ` · Auditeur : ${s.auditeur_email}` : ''}
+                    {s.audit_date
+                      ? new Date(s.audit_date).toLocaleDateString()
+                      : new Date(s.created_at).toLocaleDateString()}
+                    {s.pilote_zone ? ` · Pilote : ${s.pilote_zone}` : ''}
+                    {s.auditeur_email ? ` · ${s.auditeur_email}` : ''}
                   </Text>
                 </View>
-                <View style={[styles.statusPill, s.status === 'submitted' ? styles.statusOk : styles.statusDraft]}>
-                  <Text style={styles.statusText}>{s.status === 'submitted' ? 'SOUMIS' : 'BROUILLON'}</Text>
+                <View
+                  style={[
+                    styles.statusPill,
+                    s.status === 'submitted' ? styles.statusOk : styles.statusDraft,
+                  ]}
+                >
+                  <Text style={styles.statusText}>
+                    {s.status === 'submitted' ? 'SOUMIS' : 'BROUILLON'}
+                  </Text>
                 </View>
               </View>
 
               <View style={styles.statsRow}>
-                <View style={styles.statChip}><Text style={styles.statLabel}>RÉPONDU</Text><Text style={styles.statValue}>{done}/{total}</Text></View>
-                <View style={[styles.statChip, { backgroundColor: 'rgba(16,185,129,0.1)' }]}><Text style={styles.statLabel}>OK</Text><Text style={[styles.statValue, { color: '#059669' }]}>{ok}</Text></View>
-                <View style={[styles.statChip, { backgroundColor: 'rgba(239,68,68,0.08)' }]}><Text style={styles.statLabel}>NOK</Text><Text style={[styles.statValue, { color: '#DC2626' }]}>{nok}</Text></View>
-                <View style={[styles.statChip, { backgroundColor: 'rgba(148,163,184,0.12)' }]}><Text style={styles.statLabel}>N/A</Text><Text style={[styles.statValue, { color: '#64748B' }]}>{na}</Text></View>
+                <View style={styles.statChip}>
+                  <Text style={styles.statLabel}>RÉPONDU</Text>
+                  <Text style={styles.statValue}>{done}/{total}</Text>
+                </View>
+                <View style={[styles.statChip, styles.statOk]}>
+                  <Text style={styles.statLabel}>OK</Text>
+                  <Text style={[styles.statValue, { color: '#059669' }]}>{ok}</Text>
+                </View>
+                <View style={[styles.statChip, styles.statNok]}>
+                  <Text style={styles.statLabel}>NOK</Text>
+                  <Text style={[styles.statValue, { color: '#DC2626' }]}>{nok}</Text>
+                </View>
+                <View style={[styles.statChip, styles.statNa]}>
+                  <Text style={styles.statLabel}>N/A</Text>
+                  <Text style={[styles.statValue, { color: '#64748B' }]}>{na}</Text>
+                </View>
               </View>
 
-              <Text style={styles.expandHint}>{open ? '▲ Masquer' : '▼ Voir le détail'}</Text>
+              <Text style={styles.expandHint}>
+                {open ? '▲ Masquer' : '▼ Voir le détail'}
+              </Text>
             </TouchableOpacity>
+
+            <View style={styles.cardExportRow}>
+              <TouchableOpacity
+                style={[styles.cardExportBtn, { borderColor: '#DC2626' }]}
+                onPress={() => handleExport(s, 'pdf')}
+                disabled={exportingId !== null}
+              >
+                {busyPdf ? (
+                  <ActivityIndicator color="#DC2626" size="small" />
+                ) : (
+                  <>
+                    <Text style={styles.cardExportIcon}>📄</Text>
+                    <Text style={[styles.cardExportText, { color: '#DC2626' }]}>PDF</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.cardExportBtn, { borderColor: '#059669' }]}
+                onPress={() => handleExport(s, 'xlsx')}
+                disabled={exportingId !== null}
+              >
+                {busyXlsx ? (
+                  <ActivityIndicator color="#059669" size="small" />
+                ) : (
+                  <>
+                    <Text style={styles.cardExportIcon}>📊</Text>
+                    <Text style={[styles.cardExportText, { color: '#059669' }]}>Excel</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
 
             {open && (
               <View style={styles.detailBox}>
                 {SECTIONS_5S.map((section) => {
-                  const rows = section.questions.map((q) => {
-                    const r = s.answers.find((a) => a.question_id === q.label);
-                    return { q, r };
-                  });
+                  const rows = section.questions.map((q) => ({
+                    q,
+                    r: s.answers.find((a) => a.question_id === q.label),
+                  }));
                   const answered = rows.filter((x) => x.r?.answer).length;
                   if (answered === 0) return null;
 
                   return (
                     <View key={section.step} style={styles.sectionBlock}>
                       <View style={styles.sectionHead}>
-                        <View style={styles.sectionBadge}><Text style={styles.sectionBadgeText}>{section.step}</Text></View>
+                        <View style={styles.sectionBadge}>
+                          <Text style={styles.sectionBadgeText}>{section.step}</Text>
+                        </View>
                         <Text style={styles.sectionTitle}>{section.title}</Text>
                       </View>
-
                       {rows.map(({ q, r }) => {
                         if (!r?.answer && r?.status !== 'planned') return null;
                         return (
@@ -111,33 +231,41 @@ export default function Tableau5SScreen() {
                             <View style={styles.detailHead}>
                               <Text style={styles.detailLabel}>{q.label}</Text>
                               {r?.answer && (
-                                <View style={[
-                                  styles.answerChip,
-                                  r.answer === 'ok' && { backgroundColor: 'rgba(16,185,129,0.15)' },
-                                  r.answer === 'nok' && { backgroundColor: 'rgba(239,68,68,0.15)' },
-                                  r.answer === 'na' && { backgroundColor: 'rgba(148,163,184,0.18)' },
-                                ]}>
-                                  <Text style={[
-                                    styles.answerChipText,
-                                    r.answer === 'ok' && { color: '#059669' },
-                                    r.answer === 'nok' && { color: '#DC2626' },
-                                    r.answer === 'na' && { color: '#64748B' },
-                                  ]}>
+                                <View
+                                  style={[
+                                    styles.answerChip,
+                                    r.answer === 'ok' && { backgroundColor: 'rgba(16,185,129,0.15)' },
+                                    r.answer === 'nok' && { backgroundColor: 'rgba(239,68,68,0.15)' },
+                                    r.answer === 'na' && { backgroundColor: 'rgba(148,163,184,0.18)' },
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.answerChipText,
+                                      r.answer === 'ok' && { color: '#059669' },
+                                      r.answer === 'nok' && { color: '#DC2626' },
+                                      r.answer === 'na' && { color: '#64748B' },
+                                    ]}
+                                  >
                                     {r.answer === 'na' ? 'N/A' : r.answer.toUpperCase()}
                                   </Text>
                                 </View>
                               )}
                             </View>
                             <Text style={styles.detailTitle}>{q.text}</Text>
-                            {r?.comment ? <Text style={styles.detailComment}>💬 {r.comment}</Text> : null}
+                            {r?.comment ? (
+                              <Text style={styles.detailComment}>💬 {r.comment}</Text>
+                            ) : null}
                             {(r?.pilot || r?.due_date) && (
                               <View style={styles.metaTags}>
-                                {r?.pilot ? <Text style={styles.metaTag}>👤 {r.pilot}</Text> : null}
-                                {r?.due_date ? <Text style={styles.metaTag}>📅 {r.due_date}</Text> : null}
+                                {r?.pilot ? (
+                                  <Text style={styles.metaTag}>👤 {r.pilot}</Text>
+                                ) : null}
+                                {r?.due_date ? (
+                                  <Text style={styles.metaTag}>📅 {r.due_date}</Text>
+                                ) : null}
                               </View>
                             )}
-
-                            {/* PHOTO du NOK */}
                             {r?.image_url ? (
                               <Image source={{ uri: r.image_url }} style={styles.evidence} />
                             ) : null}
@@ -161,7 +289,13 @@ export default function Tableau5SScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#F8FAFC' },
   scroll: { padding: 20, paddingBottom: 60 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: '#F8FAFC' },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    backgroundColor: '#F8FAFC',
+  },
   lockIcon: { fontSize: 48, marginBottom: 12 },
   lockTitle: { fontSize: 20, fontWeight: '900', color: '#0F172A' },
   pageTitle: { fontSize: 26, fontWeight: '900', color: '#0F172A' },
@@ -169,7 +303,16 @@ const styles = StyleSheet.create({
   emptyBox: { alignItems: 'center', paddingVertical: 60 },
   emptyIcon: { fontSize: 48, marginBottom: 12 },
   emptyTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A' },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 18, marginBottom: 14, shadowColor: '#0F172A', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
   cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardLigne: { fontSize: 20, fontWeight: '900', color: '#0F172A' },
   cardDate: { fontSize: 12, color: '#64748B', marginTop: 4, fontWeight: '600' },
@@ -178,17 +321,52 @@ const styles = StyleSheet.create({
   statusDraft: { backgroundColor: 'rgba(148,163,184,0.2)' },
   statusText: { fontSize: 10, fontWeight: '900', letterSpacing: 1.2, color: '#1E293B' },
   statsRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  statChip: { flex: 1, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#F1F5F9' },
+  statChip: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+  },
+  statOk: { backgroundColor: 'rgba(16,185,129,0.1)' },
+  statNok: { backgroundColor: 'rgba(239,68,68,0.08)' },
+  statNa: { backgroundColor: 'rgba(148,163,184,0.12)' },
   statLabel: { fontSize: 9, fontWeight: '900', color: '#94A3B8', letterSpacing: 1.2 },
   statValue: { fontSize: 16, fontWeight: '900', color: '#0F172A', marginTop: 2 },
   expandHint: { marginTop: 12, fontSize: 12, fontWeight: '800', color: '#2563EB', textAlign: 'center' },
+  cardExportRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  cardExportBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    backgroundColor: '#FFFFFF',
+  },
+  cardExportIcon: { fontSize: 14, marginRight: 6 },
+  cardExportText: { fontWeight: '900', fontSize: 12, letterSpacing: 0.5 },
   detailBox: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#E2E8F0' },
   sectionBlock: { marginBottom: 18 },
   sectionHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  sectionBadge: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  sectionBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
   sectionBadgeText: { color: '#FFF', fontWeight: '900', fontSize: 12 },
   sectionTitle: { fontSize: 16, fontWeight: '900', color: '#0F172A' },
-  detailRow: { marginBottom: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  detailRow: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
   detailHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   detailLabel: { fontSize: 12, fontWeight: '900', color: '#64748B', letterSpacing: 1 },
   answerChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
@@ -196,6 +374,20 @@ const styles = StyleSheet.create({
   detailTitle: { fontSize: 13, fontWeight: '700', color: '#0F172A', lineHeight: 18 },
   detailComment: { fontSize: 12, color: '#475569', marginTop: 4, fontStyle: 'italic' },
   metaTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
-  metaTag: { fontSize: 11, color: '#475569', fontWeight: '700', backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  evidence: { width: '100%', height: 200, borderRadius: 12, marginTop: 10, backgroundColor: '#F1F5F9' },
+  metaTag: {
+    fontSize: 11,
+    color: '#475569',
+    fontWeight: '700',
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  evidence: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginTop: 10,
+    backgroundColor: '#F1F5F9',
+  },
 });

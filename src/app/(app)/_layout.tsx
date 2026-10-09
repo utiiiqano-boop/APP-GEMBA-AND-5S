@@ -15,6 +15,7 @@ const NAV = [
   { label: 'Audit 5S', route: '/(app)/audit5s', icon: '⬡' },
   { label: 'Tableau Gemba', route: '/(app)/gemba-tableau', icon: '▦' },
   { label: 'Tableau 5S', route: '/(app)/5s-tableau', icon: '▤' },
+  { label: 'Contenu Audit', route: '/(app)/content-editor', icon: '✎' },
   { label: 'Utilisateurs', route: '/(app)/users', icon: '◉' },
   { label: 'Configuration Entreprise', route: '/(app)/settings', icon: '⚙' },
 ];
