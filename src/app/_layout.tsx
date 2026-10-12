@@ -15,6 +15,7 @@ import {
 
 import { AuthProvider, useAuth } from '../features/auth/AuthProvider';
 import SplashScreen from '../features/auth/screens/SplashScreen';
+import { subscribeToNotificationTaps } from '../lib/pushNotifications';
 
 NativeSplash.preventAutoHideAsync().catch(() => {});
 
@@ -46,6 +47,8 @@ function RootNavigator() {
   );
 }
 
+import { router } from 'expo-router';
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -61,6 +64,17 @@ export default function RootLayout() {
       NativeSplash.hideAsync().catch(() => {});
     }
   }, [fontsLoaded]);
+
+  // Tap sur notification → navigue vers l'écran adéquat
+  useEffect(() => {
+    const unsub = subscribeToNotificationTaps((data) => {
+      if (data?.type === 'nok' || data?.type === 'assignment') {
+        const auditType = data.audit_id ? '5s' : 'gemba';
+        router.push('/(app)/gemba');
+      }
+    });
+    return unsub;
+  }, []);
 
   if (!fontsLoaded) return null;
 

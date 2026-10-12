@@ -58,3 +58,5 @@ yarn-error.log*
 .backup/
 *.aab
 *.apk
+.env
+.env.local

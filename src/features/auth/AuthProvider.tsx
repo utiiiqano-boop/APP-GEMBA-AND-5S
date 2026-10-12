@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../../lib/supabase';
+import { registerPushToken, unregisterPushToken } from '../../lib/pushNotifications';
 
 interface AuthState {
   session: Session | null;
@@ -18,13 +19,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Restaure la session au démarrage
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsLoading(false);
+      // Enregistre le token si session active
+      if (session?.user) {
+        setTimeout(() => registerPushToken().catch(() => {}), 1500);
+      }
     });
 
+    // Écoute les changements d'état
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => setSession(session)
+      (event, session) => {
+        console.log('[auth] event =', event, 'user =', session?.user?.email);
+        setSession(session);
+
+        if (event === 'SIGNED_IN' && session?.user) {
+          setTimeout(() => registerPushToken().catch(() => {}), 1500);
+        } else if (event === 'SIGNED_OUT') {
+          // rien (déjà fait dans signOut)
+        }
+      }
     );
 
     return () => subscription.unsubscribe();
@@ -42,6 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
+      await unregisterPushToken();
+    } catch {
+      // ignore
+    }
+    try {
       await supabase.auth.signOut();
     } catch {
       // ignore
@@ -50,7 +71,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user: session?.user ?? null, isLoading, signIn, signUp, signOut }}
+      value={{
+        session,
+        user: session?.user ?? null,
+        isLoading,
+        signIn,
+        signUp,
+        signOut,
+      }}
     >
       {children}
     </AuthContext.Provider>

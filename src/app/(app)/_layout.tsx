@@ -21,6 +21,8 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { label: 'Dashboard', route: '/(app)/dashboard', icon: 'bar-chart-2', group: 'main' },
+  { label: 'Notifications', route: '/(app)/notifications', icon: 'bell', group: 'main' },
+
   { label: 'Audit Gemba', route: '/(app)/gemba', icon: 'target', group: 'main' },
   { label: 'Audit 5S', route: '/(app)/audit5s', icon: 'grid', group: 'main' },
   { label: 'Tableau Gemba', route: '/(app)/gemba-tableau', icon: 'list', group: 'main' },

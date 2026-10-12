@@ -9,24 +9,47 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      "expo-notifications",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
+      "expo-sharing"
     ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gemba.app5s"
     },
     "android": {
-      "package": "com.gemba.app5s"
+      "package": "com.gemba.app5s",
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundColor": "#2563EB"
+      }
     },
     "web": {
       "bundler": "metro",
-      "output": "static"
+      "output": "static",
+      "favicon": "./assets/favicon.png"
     },
     "extra": {
       "router": {},
       "eas": {
         "projectId": "5d318035-06c1-4c27-a806-b75c452104c0"
       }
-    }
+    },
+    "owner": "utiqanoos-team",
+    "icon": "./assets/icon.png"
   }
 }
