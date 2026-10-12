@@ -105,7 +105,7 @@ export default function DashboardScreen() {
         <Text style={styles.cardTitle}>Répartition globale</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', marginTop: 10 }}>
           <Svg width={140} height={140} viewBox="0 0 140 140">
-            <G rotation={-90} originX={70} originY={70}>
+            <G transform="rotate(-90 70 70)">
               <Circle cx={70} cy={70} r={55} stroke="#059669" strokeWidth={20}
                 strokeDasharray={`${pieOkPct * 345.5} 345.5`} fill="none" />
               <Circle cx={70} cy={70} r={55} stroke="#DC2626" strokeWidth={20}
