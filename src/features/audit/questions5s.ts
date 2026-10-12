@@ -1,5 +1,5 @@
 export interface Audit5SQuestion {
-  id: string;
+  id?: string;
   step: string;      // S1, S2, S3, S4, S5
   title: string;     // "Eliminer" etc.
   subtitle: string;  // the philosophy line

@@ -11,13 +11,15 @@ import * as Haptics from 'expo-haptics';
 import { useAuth } from '../../features/auth/AuthProvider';
 
 const NAV = [
-  { label: 'Audit Gemba', route: '/(app)/gemba', icon: '◎' },
-  { label: 'Audit 5S', route: '/(app)/audit5s', icon: '⬡' },
-  { label: 'Tableau Gemba', route: '/(app)/gemba-tableau', icon: '▦' },
-  { label: 'Tableau 5S', route: '/(app)/5s-tableau', icon: '▤' },
-  { label: 'Contenu Audit', route: '/(app)/content-editor', icon: '✎' },
-  { label: 'Utilisateurs', route: '/(app)/users', icon: '◉' },
-  { label: 'Configuration Entreprise', route: '/(app)/settings', icon: '⚙' },
+  { label: 'Dashboard', route: '/(app)/dashboard', icon: 'D' },
+  { label: 'Audit Gemba', route: '/(app)/gemba', icon: '@' },
+  { label: 'Audit 5S', route: '/(app)/audit5s', icon: '#' },
+  { label: 'Tableau Gemba', route: '/(app)/gemba-tableau', icon: 'T' },
+  { label: 'Tableau 5S', route: '/(app)/5s-tableau', icon: 't' },
+  { label: 'Plan actions', route: '/(app)/action-plans', icon: 'P' },
+  { label: 'Contenu Audit', route: '/(app)/content-editor', icon: 'C' },
+  { label: 'Utilisateurs', route: '/(app)/users', icon: 'U' },
+  { label: 'Configuration Entreprise', route: '/(app)/settings', icon: 'S' },
 ];
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
@@ -147,6 +149,6 @@ const styles = StyleSheet.create({
   burger: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
   burgerLine: { width: 22, height: 2, backgroundColor: '#0F172A', marginVertical: 2, borderRadius: 1 },
   topbarTitle: { fontSize: 15, fontWeight: '800', color: '#0F172A', letterSpacing: 2 },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: '#000' },
   drawer: { position: 'absolute', top: 0, bottom: 0, left: 0, width: SIDEBAR_WIDTH, backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 20, shadowOffset: { width: 8, height: 0 } },
 });

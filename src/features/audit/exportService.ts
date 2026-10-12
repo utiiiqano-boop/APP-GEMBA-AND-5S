@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import { Platform } from 'react-native';
 import { supabase } from '../../lib/supabase';
@@ -386,14 +386,13 @@ export async function exportSingleAuditExcel(
 
 function base64ToBlob(base64: string): Blob {
   const byteChars = atob(base64);
-  const byteArrays: Uint8Array[] = [];
-  for (let i = 0; i < byteChars.length; i += 512) {
-    const slice = byteChars.slice(i, i + 512);
-    const bytes = new Uint8Array(slice.length);
-    for (let j = 0; j < slice.length; j++) bytes[j] = slice.charCodeAt(j);
-    byteArrays.push(bytes);
+  const total = byteChars.length;
+  const buffer = new ArrayBuffer(total);
+  const view = new Uint8Array(buffer);
+  for (let i = 0; i < total; i++) {
+    view[i] = byteChars.charCodeAt(i);
   }
-  return new Blob(byteArrays, {
+  return new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
 }

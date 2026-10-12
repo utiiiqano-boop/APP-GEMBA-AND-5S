@@ -36,9 +36,22 @@ export interface AuditMeta {
   auditor_id: string;
   auditeur_id: string | null;
   created_at: string;
+  score?: number | null;
+  total_questions?: number | null;
+  total_ok?: number | null;
+  total_nok?: number | null;
+  total_na?: number | null;
+  total_scored?: number | null;
 }
 
-/* ─────────── Company / role ─────────── */
+export interface AuditScore {
+  total_questions: number;
+  total_ok: number;
+  total_nok: number;
+  total_na: number;
+  total_scored: number;
+  score: number;
+}
 
 export async function getMyCompanyId(): Promise<string | null> {
   const { data: u } = await supabase.auth.getUser();
@@ -75,8 +88,6 @@ export async function listCompanyMembers(companyId: string): Promise<CompanyMemb
   return (data ?? []) as CompanyMember[];
 }
 
-/* ─────────── Audit lifecycle ─────────── */
-
 export async function getOrCreateDraftAudit(
   companyId: string,
   type: AuditType
@@ -99,12 +110,7 @@ export async function getOrCreateDraftAudit(
 
   const { data, error } = await supabase
     .from('audits')
-    .insert({
-      company_id: companyId,
-      auditor_id: u.user.id,
-      type,
-      status: 'draft',
-    })
+    .insert({ company_id: companyId, auditor_id: u.user.id, type, status: 'draft' })
     .select('*')
     .single();
   if (error) throw error;
@@ -140,8 +146,6 @@ export async function getAuditAnswers(auditId: string): Promise<AnswerRow[]> {
   return (data ?? []) as AnswerRow[];
 }
 
-/* ─────────── Admin: plan a question ─────────── */
-
 export async function planQuestion(input: {
   auditId: string;
   questionId: string;
@@ -168,8 +172,6 @@ export async function planQuestion(input: {
     );
   if (error) throw error;
 }
-
-/* ─────────── Auditor: answer a question ─────────── */
 
 export async function answerQuestion(input: {
   auditId: string;
@@ -200,6 +202,39 @@ export async function answerQuestion(input: {
   if (error) throw error;
 }
 
+/** OK = 1 point, NOK = 0, N/A exclu. Score = OK/(OK+NOK)*100 */
+export function computeScore(answers: AnswerRow[]): AuditScore {
+  const answered = answers.filter((a) => a.answer != null);
+  const ok = answered.filter((a) => a.answer === 'ok').length;
+  const nok = answered.filter((a) => a.answer === 'nok').length;
+  const na = answered.filter((a) => a.answer === 'na').length;
+  const scored = ok + nok;
+  const score = scored === 0 ? 0 : Math.round((100 * ok) / scored * 100) / 100;
+  return {
+    total_questions: answered.length,
+    total_ok: ok,
+    total_nok: nok,
+    total_na: na,
+    total_scored: scored,
+    score,
+  };
+}
+
+export async function saveAuditScore(auditId: string, s: AuditScore) {
+  const { error } = await supabase
+    .from('audits')
+    .update({
+      score: s.score,
+      total_questions: s.total_questions,
+      total_ok: s.total_ok,
+      total_nok: s.total_nok,
+      total_na: s.total_na,
+      total_scored: s.total_scored,
+    })
+    .eq('id', auditId);
+  if (error) throw error;
+}
+
 export async function submitAudit(auditId: string, score?: number) {
   const { error } = await supabase
     .from('audits')
@@ -207,8 +242,6 @@ export async function submitAudit(auditId: string, score?: number) {
     .eq('id', auditId);
   if (error) throw error;
 }
-
-/* ─────────── Admin results table ─────────── */
 
 export interface SubmissionRow {
   question_id: string;
@@ -232,9 +265,14 @@ export interface Submission {
   auditeur_email: string | null;
   pilote_zone: string | null;
   answers: SubmissionRow[];
+  score?: number;
+  total_questions?: number;
+  total_ok?: number;
+  total_nok?: number;
+  total_na?: number;
+  total_scored?: number;
 }
 
-/** Kept as alias for backwards compatibility */
 export type GembaRow = SubmissionRow;
 export type GembaSubmission = Submission;
 
@@ -244,7 +282,7 @@ export async function listSubmissions(
 ): Promise<Submission[]> {
   const { data: audits, error: aErr } = await supabase
     .from('audits')
-    .select('id, ligne, zone, audit_date, pilote_zone, status, created_at, auditor_id, auditeur_id')
+    .select('id, ligne, zone, audit_date, pilote_zone, status, created_at, auditor_id, auditeur_id, score, total_questions, total_ok, total_nok, total_na, total_scored')
     .eq('company_id', companyId)
     .eq('type', type)
     .order('created_at', { ascending: false });
@@ -273,17 +311,8 @@ export async function listSubmissions(
     ansByAudit.set(a.audit_id, arr);
   });
 
-  return audits.map((a: any) => ({
-    audit_id: a.id,
-    ligne: a.ligne,
-    zone: a.zone,
-    audit_date: a.audit_date,
-    pilote_zone: a.pilote_zone,
-    status: a.status,
-    created_at: a.created_at,
-    auditor_email: userMap.get(a.auditor_id) ?? null,
-    auditeur_email: a.auditeur_id ? userMap.get(a.auditeur_id) ?? null : null,
-    answers: (ansByAudit.get(a.id) ?? []).map((r: any) => ({
+  return audits.map((a: any) => {
+    const rows: SubmissionRow[] = (ansByAudit.get(a.id) ?? []).map((r: any) => ({
       question_id: r.question_id,
       category: r.category,
       answer: r.answer,
@@ -292,6 +321,27 @@ export async function listSubmissions(
       due_date: r.due_date,
       status: r.status,
       image_url: r.image_url ?? null,
-    })),
-  }));
+    }));
+
+    const computed = computeScore(rows as any);
+
+    return {
+      audit_id: a.id,
+      ligne: a.ligne,
+      zone: a.zone,
+      audit_date: a.audit_date,
+      pilote_zone: a.pilote_zone,
+      status: a.status,
+      created_at: a.created_at,
+      auditor_email: userMap.get(a.auditor_id) ?? null,
+      auditeur_email: a.auditeur_id ? userMap.get(a.auditeur_id) ?? null : null,
+      answers: rows,
+      score: a.score ?? computed.score,
+      total_questions: a.total_questions ?? computed.total_questions,
+      total_ok: a.total_ok ?? computed.total_ok,
+      total_nok: a.total_nok ?? computed.total_nok,
+      total_na: a.total_na ?? computed.total_na,
+      total_scored: a.total_scored ?? computed.total_scored,
+    };
+  });
 }

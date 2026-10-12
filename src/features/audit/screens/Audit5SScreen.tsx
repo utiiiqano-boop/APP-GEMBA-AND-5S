@@ -20,6 +20,7 @@ import { getEffective5S, listLignes } from '../contentService';
 import {
   getOrCreateDraftAudit, getMyCompanyId, getMyRole,
   getAuditAnswers, answerQuestion, submitAudit,
+  computeScore, saveAuditScore,
   updateAuditHeader, AnswerRow, AuditMeta, Role,
 } from '../auditService';
 import { uploadAuditImage } from '../../../lib/imageUpload';
@@ -296,10 +297,13 @@ export default function Audit5SScreen() {
     setSubmitBusy(true);
     try {
       for (const q of all5S) await saveRow(q);
-      await submitAudit(audit.id, 100);
+      const finalAnswers = Object.values(answers) as any[];
+      const sc = computeScore(finalAnswers);
+      await saveAuditScore(audit.id, sc);
+      await submitAudit(audit.id, sc.score);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSubmitted(true);
-      Alert.alert('Merci !', 'Vos réponses ont été enregistrées.', [
+      Alert.alert('Merci !', `Score : ${sc.score.toFixed(1)} %  (${sc.total_ok}/${sc.total_scored} OK)`, [
         { text: 'OK', onPress: () => router.replace('/(app)') },
       ]);
     } catch (e: any) {
