@@ -52,3 +52,9 @@ yarn-error.log*
 .idea/
 *.swp
 *.swo
+.env
+.env.local
+*.env
+.backup/
+*.aab
+*.apk
