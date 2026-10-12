@@ -8,66 +8,138 @@ import Animated, {
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import { Feather } from '@expo/vector-icons';
 import { useAuth } from '../../features/auth/AuthProvider';
+import { colors, spacing, radius, shadow, font, text } from '../../theme';
 
-const NAV = [
-  { label: 'Dashboard', route: '/(app)/dashboard', icon: 'D' },
-  { label: 'Audit Gemba', route: '/(app)/gemba', icon: '@' },
-  { label: 'Audit 5S', route: '/(app)/audit5s', icon: '#' },
-  { label: 'Tableau Gemba', route: '/(app)/gemba-tableau', icon: 'T' },
-  { label: 'Tableau 5S', route: '/(app)/5s-tableau', icon: 't' },
-  { label: 'Plan actions', route: '/(app)/action-plans', icon: 'P' },
-  { label: 'Contenu Audit', route: '/(app)/content-editor', icon: 'C' },
-  { label: 'Utilisateurs', route: '/(app)/users', icon: 'U' },
-  { label: 'Configuration Entreprise', route: '/(app)/settings', icon: 'S' },
+type NavItem = {
+  label: string;
+  route: string;
+  icon: keyof typeof Feather.glyphMap;
+  group: 'main' | 'admin';
+};
+
+const NAV: NavItem[] = [
+  { label: 'Dashboard', route: '/(app)/dashboard', icon: 'bar-chart-2', group: 'main' },
+  { label: 'Audit Gemba', route: '/(app)/gemba', icon: 'target', group: 'main' },
+  { label: 'Audit 5S', route: '/(app)/audit5s', icon: 'grid', group: 'main' },
+  { label: 'Tableau Gemba', route: '/(app)/gemba-tableau', icon: 'list', group: 'main' },
+  { label: 'Tableau 5S', route: '/(app)/5s-tableau', icon: 'layers', group: 'main' },
+  { label: 'Plan actions', route: '/(app)/action-plans', icon: 'check-square', group: 'main' },
+  { label: 'Contenu Audit', route: '/(app)/content-editor', icon: 'edit-3', group: 'admin' },
+  { label: 'Utilisateurs', route: '/(app)/users', icon: 'users', group: 'admin' },
+  { label: 'Configuration', route: '/(app)/settings', icon: 'settings', group: 'admin' },
 ];
+
+function NavRow({
+  item, active, onPress,
+}: { item: NavItem; active: boolean; onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={[styles.navItem, active && styles.navItemActive]}
+      activeOpacity={0.85}
+    >
+      <View style={[styles.navIconWrap, active && styles.navIconWrapActive]}>
+        <Feather
+          name={item.icon}
+          size={18}
+          color={active ? colors.white : colors.gray[500]}
+        />
+      </View>
+      <Text style={[styles.navLabel, active && styles.navLabelActive]} numberOfLines={1}>
+        {item.label}
+      </Text>
+      {active && <View style={styles.navDot} />}
+    </TouchableOpacity>
+  );
+}
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { signOut, user } = useAuth();
+
   const handleNav = (route: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push(route as any);
     onNavigate?.();
   };
+
+  const mainNav = NAV.filter((n) => n.group === 'main');
+  const adminNav = NAV.filter((n) => n.group === 'admin');
+
   return (
     <View style={styles.sidebarInner}>
+      {/* Brand */}
       <View style={styles.brand}>
-        <Text style={styles.brandGemba}>GEMBA</Text>
-        <LinearGradient colors={['#3B82F6', '#2563EB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.brandChip}>
-          <Text style={styles.brandChipText}>5S</Text>
+        <LinearGradient
+          colors={[colors.primary, colors.primaryDark]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.brandLogo}
+        >
+          <Text style={styles.brandLogoText}>5S</Text>
         </LinearGradient>
+        <View style={{ marginLeft: 12 }}>
+          <Text style={styles.brandTitle}>GEMBA</Text>
+          <Text style={styles.brandSub}>Workplace System</Text>
+        </View>
       </View>
+
+      {/* User */}
       <View style={styles.userBox}>
-        <View style={styles.avatar}><Text style={styles.avatarText}>{(user?.email?.[0] ?? '?').toUpperCase()}</Text></View>
-        <Text style={styles.userEmail} numberOfLines={1}>{user?.email}</Text>
+        <LinearGradient
+          colors={[colors.admin, colors.adminDark]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.avatar}
+        >
+          <Text style={styles.avatarText}>
+            {(user?.email?.[0] ?? '?').toUpperCase()}
+          </Text>
+        </LinearGradient>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.userName} numberOfLines={1}>
+            {user?.email?.split('@')[0] ?? 'Utilisateur'}
+          </Text>
+          <Text style={styles.userEmail} numberOfLines={1}>
+            {user?.email}
+          </Text>
+        </View>
       </View>
+
+      {/* Nav */}
       <ScrollView style={styles.nav} showsVerticalScrollIndicator={false}>
-        {NAV.map((item) => {
+        <Text style={styles.sectionLabel}>PRINCIPAL</Text>
+        {mainNav.map((item) => {
           const seg = item.route.replace('/(app)', '');
           const active = pathname === seg || (seg !== '/' && pathname.startsWith(seg));
           return (
-            <TouchableOpacity
-              key={item.route}
-              onPress={() => handleNav(item.route)}
-              style={[styles.navItem, active && styles.navItemActive]}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.navIcon, active && styles.navIconActive]}>{item.icon}</Text>
-              <Text style={[styles.navLabel, active && styles.navLabelActive]}>{item.label}</Text>
-              {active && <View style={styles.navDot} />}
-            </TouchableOpacity>
+            <NavRow key={item.route} item={item} active={active} onPress={() => handleNav(item.route)} />
+          );
+        })}
+
+        <Text style={[styles.sectionLabel, { marginTop: spacing.lg }]}>ADMINISTRATION</Text>
+        {adminNav.map((item) => {
+          const seg = item.route.replace('/(app)', '');
+          const active = pathname === seg || (seg !== '/' && pathname.startsWith(seg));
+          return (
+            <NavRow key={item.route} item={item} active={active} onPress={() => handleNav(item.route)} />
           );
         })}
       </ScrollView>
+
+      {/* Sign out */}
       <TouchableOpacity
         style={styles.signOut}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           signOut();
         }}
+        activeOpacity={0.85}
       >
-        <Text style={styles.signOutText}>⏻  Sign out</Text>
+        <Feather name="log-out" size={16} color={colors.danger} />
+        <Text style={styles.signOutText}>Déconnexion</Text>
       </TouchableOpacity>
     </View>
   );
@@ -77,8 +149,10 @@ export default function AppLayout() {
   const { width } = useWindowDimensions();
   const isDesktop = width >= 900;
   const [menuOpen, setMenuOpen] = useState(false);
+
   const slide = useSharedValue(-320);
   const backdrop = useSharedValue(0);
+
   useEffect(() => {
     if (menuOpen) {
       slide.value = withSpring(0, { damping: 20, stiffness: 140 });
@@ -88,18 +162,25 @@ export default function AppLayout() {
       backdrop.value = withTiming(0, { duration: 220 });
     }
   }, [menuOpen]);
+
   const drawerStyle = useAnimatedStyle(() => ({ transform: [{ translateX: slide.value }] }));
   const backdropStyle = useAnimatedStyle(() => ({ opacity: interpolate(backdrop.value, [0, 1], [0, 0.5]) }));
+
   const openMenu = () => { Haptics.selectionAsync(); setMenuOpen(true); };
   const closeMenu = () => setMenuOpen(false);
+
   return (
     <View style={styles.root}>
-      {isDesktop && (<View style={styles.sidebar}><SidebarContent /></View>)}
+      {isDesktop && (
+        <View style={styles.sidebar}>
+          <SidebarContent />
+        </View>
+      )}
       <View style={styles.main}>
         {!isDesktop && (
           <View style={styles.topbar}>
-            <TouchableOpacity onPress={openMenu} style={styles.burger} hitSlop={12}>
-              <View style={styles.burgerLine} /><View style={styles.burgerLine} /><View style={styles.burgerLine} />
+            <TouchableOpacity onPress={openMenu} style={styles.burger} hitSlop={12} activeOpacity={0.7}>
+              <Feather name="menu" size={22} color={colors.gray[900]} />
             </TouchableOpacity>
             <Text style={styles.topbarTitle}>GEMBA 5S</Text>
             <View style={{ width: 36 }} />
@@ -122,33 +203,137 @@ export default function AppLayout() {
 }
 
 const SIDEBAR_WIDTH = 280;
+
 const styles = StyleSheet.create({
-  root: { flex: 1, flexDirection: 'row', backgroundColor: '#F8FAFC' },
-  sidebar: { width: SIDEBAR_WIDTH, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#E2E8F0' },
-  sidebarInner: { flex: 1, paddingVertical: 24, paddingHorizontal: 18 },
-  brand: { alignItems: 'center', marginBottom: 28 },
-  brandGemba: { fontSize: 26, fontWeight: '900', color: '#0F172A', letterSpacing: 4 },
-  brandChip: { marginTop: 6, paddingHorizontal: 14, paddingVertical: 2, borderRadius: 10 },
-  brandChipText: { color: '#FFFFFF', fontWeight: '900', fontSize: 18, letterSpacing: 4 },
-  userBox: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: '#F1F5F9', borderRadius: 12, marginBottom: 20 },
-  avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  avatarText: { color: '#FFF', fontWeight: '800', fontSize: 14 },
-  userEmail: { flex: 1, fontSize: 12, color: '#334155', fontWeight: '600' },
+  root: { flex: 1, flexDirection: 'row', backgroundColor: colors.gray[50] },
+  sidebar: {
+    width: SIDEBAR_WIDTH,
+    backgroundColor: colors.white,
+    borderRightWidth: 1,
+    borderRightColor: colors.gray[200],
+  },
+  sidebarInner: { flex: 1, paddingVertical: spacing.xxl, paddingHorizontal: spacing.lg },
+
+  brand: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.xxl },
+  brandLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.colored(colors.primary),
+  },
+  brandLogoText: { color: colors.white, fontFamily: font.black, fontSize: 18, letterSpacing: 1 },
+  brandTitle: { fontSize: 16, fontFamily: font.black, color: colors.gray[900], letterSpacing: 2 },
+  brandSub: { fontSize: 10, fontFamily: font.semibold, color: colors.gray[400], letterSpacing: 1, marginTop: 2 },
+
+  userBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    backgroundColor: colors.gray[50],
+    borderRadius: radius.lg,
+    marginBottom: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.gray[200],
+  },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  avatarText: { color: colors.white, fontFamily: font.black, fontSize: 14 },
+  userName: { fontSize: 13, fontFamily: font.bold, color: colors.gray[900] },
+  userEmail: { fontSize: 11, fontFamily: font.medium, color: colors.gray[500], marginTop: 1 },
+
   nav: { flex: 1 },
-  navItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, marginBottom: 6 },
-  navItemActive: { backgroundColor: 'rgba(37,99,235,0.1)' },
-  navIcon: { fontSize: 18, color: '#64748B', width: 26 },
-  navIconActive: { color: '#2563EB' },
-  navLabel: { flex: 1, fontSize: 14, color: '#475569', fontWeight: '600' },
-  navLabelActive: { color: '#2563EB', fontWeight: '800' },
-  navDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#2563EB' },
-  signOut: { marginTop: 12, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, backgroundColor: 'rgba(239,68,68,0.1)' },
-  signOutText: { color: '#DC2626', fontWeight: '800', fontSize: 13, letterSpacing: 1 },
+  sectionLabel: {
+    fontSize: 10,
+    fontFamily: font.extrabold,
+    color: colors.gray[400],
+    letterSpacing: 1.8,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.sm,
+  },
+  navItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+    marginBottom: 4,
+  },
+  navItemActive: {
+    backgroundColor: colors.primarySoft,
+    ...shadow.xs,
+  },
+  navIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    backgroundColor: colors.gray[100],
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  navIconWrapActive: {
+    backgroundColor: colors.primary,
+    ...shadow.colored(colors.primary),
+  },
+  navLabel: { flex: 1, fontSize: 13, fontFamily: font.semibold, color: colors.gray[600] },
+  navLabelActive: { color: colors.primary, fontFamily: font.bold },
+  navDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+
+  signOut: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.md,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    backgroundColor: colors.dangerSoft,
+    gap: 8,
+  },
+  signOutText: { color: colors.danger, fontFamily: font.bold, fontSize: 13, letterSpacing: 0.5 },
+
   main: { flex: 1 },
-  topbar: { height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-  burger: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
-  burgerLine: { width: 22, height: 2, backgroundColor: '#0F172A', marginVertical: 2, borderRadius: 1 },
-  topbarTitle: { fontSize: 15, fontWeight: '800', color: '#0F172A', letterSpacing: 2 },
-  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: '#000' },
-  drawer: { position: 'absolute', top: 0, bottom: 0, left: 0, width: SIDEBAR_WIDTH, backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 20, shadowOffset: { width: 8, height: 0 } },
+  topbar: {
+    height: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray[200],
+    ...shadow.xs,
+  },
+  burger: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: radius.sm,
+  },
+  topbarTitle: { fontSize: 15, fontFamily: font.extrabold, color: colors.gray[900], letterSpacing: 2 },
+
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: colors.black },
+  drawer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: SIDEBAR_WIDTH,
+    backgroundColor: colors.white,
+    ...shadow.lg,
+  },
 });
