@@ -4,7 +4,18 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 
-// Configuration d'affichage en foreground
+// Buffer pour afficher les logs dans l'UI
+export const pushLogs: string[] = [];
+function log(msg: string, ...args: any[]) {
+  const full = args.length
+    ? msg + ' ' + args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')
+    : msg;
+  // eslint-disable-next-line no-console
+  console.log(full);
+  pushLogs.push(full);
+  if (pushLogs.length > 100) pushLogs.shift();
+}
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -15,31 +26,38 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/**
- * Enregistre le token Expo Push pour l'utilisateur courant.
- * À appeler après login et à chaque démarrage de l'app.
- */
 export async function registerPushToken(): Promise<string | null> {
+  pushLogs.length = 0;
   try {
-    // Simulateur : pas de token
+    log('[push] === START ===');
+    log('[push] Platform:', Platform.OS);
+    log('[push] isDevice:', String(Device.isDevice));
+
+    if (Platform.OS === 'web') {
+      log('[push] WEB détecté — skip');
+      return null;
+    }
+
     if (!Device.isDevice) {
-      console.log('[push] Simulateur — pas de token');
+      log('[push] ÉMULATEUR détecté — skip');
       return null;
     }
 
-    // Permissions
-    const { status: existing } = await Notifications.getPermissionsAsync();
-    let finalStatus = existing;
-    if (existing !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
+    const perm = await Notifications.getPermissionsAsync();
+    log('[push] Permission actuelle:', perm.status);
+
+    let finalStatus = perm.status;
     if (finalStatus !== 'granted') {
-      console.log('[push] Permission refusée');
+      const req = await Notifications.requestPermissionsAsync();
+      finalStatus = req.status;
+      log('[push] Nouvelle permission:', finalStatus);
+    }
+
+    if (finalStatus !== 'granted') {
+      log('[push] PERMISSION REFUSÉE');
       return null;
     }
 
-    // Canal Android
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'Notifications GEMBA',
@@ -47,24 +65,29 @@ export async function registerPushToken(): Promise<string | null> {
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#2563EB',
       });
+      log('[push] Canal Android créé');
     }
 
-    // Token
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    log('[push] projectId:', projectId);
     if (!projectId) {
-      console.warn('[push] projectId manquant dans app.json');
+      log('[push] PROJECTID MANQUANT');
       return null;
     }
 
+    log('[push] Génération du token...');
     const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
     const token = tokenData.data;
-    console.log('[push] token =', token);
+    log('[push] ✅ TOKEN:', token);
 
-    // Récupère l'utilisateur
     const { data: u } = await supabase.auth.getUser();
-    if (!u.user) return null;
+    if (!u.user) {
+      log('[push] PAS DE USER CONNECTÉ');
+      return null;
+    }
+    log('[push] User:', u.user.id);
 
-    // Upsert dans Supabase
+    log('[push] Upsert dans Supabase...');
     const { error } = await supabase.from('push_tokens').upsert(
       {
         user_id: u.user.id,
@@ -76,41 +99,40 @@ export async function registerPushToken(): Promise<string | null> {
       { onConflict: 'user_id,token' }
     );
 
-    if (error) console.warn('[push] upsert error', error);
+    if (error) {
+      log('[push] ERREUR UPSERT:', error.message, error.code);
+      return null;
+    }
 
+    log('[push] ✅ ENREGISTRÉ DANS SUPABASE');
     return token;
   } catch (e: any) {
-    console.warn('[push] register error', e?.message);
+    log('[push] EXCEPTION:', e?.message ?? String(e));
     return null;
   }
 }
 
-/** Désenregistre le token au logout. */
 export async function unregisterPushToken() {
   try {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: Constants.expoConfig?.extra?.eas?.projectId,
-    }).catch(() => null);
-    if (!tokenData) return;
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    if (!projectId) return;
+    const t = await Notifications.getExpoPushTokenAsync({ projectId }).catch(() => null);
+    if (!t) return;
     await supabase
       .from('push_tokens')
       .update({ is_active: false })
       .eq('user_id', u.user.id)
-      .eq('token', tokenData.data);
-  } catch {
-    // ignore
-  }
+      .eq('token', t.data);
+  } catch {}
 }
 
-/** Écoute les taps sur les notifications. */
 export function subscribeToNotificationTaps(
-  onTap: (data: Record<string, any>) => void
+  onTap: (d: Record<string, any>) => void
 ) {
-  const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-    const data = response.notification.request.content.data;
-    onTap(data as Record<string, any>);
+  const sub = Notifications.addNotificationResponseReceivedListener((r) => {
+    onTap(r.notification.request.content.data as Record<string, any>);
   });
   return () => sub.remove();
 }

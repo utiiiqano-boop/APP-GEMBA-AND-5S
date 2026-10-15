@@ -60,3 +60,20 @@ yarn-error.log*
 *.apk
 .env
 .env.local
+google-services.json
+google-services.json
+
+# Firebase (contient des identifiants)
+google-services.json
+service-account.json
+*-firebase-adminsdk-*.json
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+*.aab
+*.apk
+*.ipa

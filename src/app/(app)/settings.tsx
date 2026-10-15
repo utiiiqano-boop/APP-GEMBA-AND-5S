@@ -10,6 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from 'expo-router';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { getMyRole, Role } from '../../features/audit/auditService';
+import { registerPushToken } from '../../lib/pushNotifications';
 import {
   getMyCompany, updateCompanyName, updateCompanyLogo,
   removeCompanyLogo, Company,
@@ -179,6 +180,33 @@ export default function SettingsScreen() {
         <Text style={styles.pageSub}>
           Modifiez le nom et le logo de votre entreprise.
         </Text>
+
+        {/* DEBUG — à retirer après test */}
+        <TouchableOpacity
+          style={{
+            marginTop: 16, padding: 16, backgroundColor: '#FEF2F2',
+            borderRadius: 12, borderWidth: 2, borderColor: '#DC2626',
+          }}
+          onPress={async () => {
+            try {
+              const { registerPushToken, pushLogs } = await import('../../lib/pushNotifications');
+              const t = await registerPushToken();
+              const logsText = pushLogs.slice(-20).join('\n');
+              if (t) {
+                alert('✅ TOKEN GÉNÉRÉ\n\n' + t + '\n\n──── LOGS ────\n' + logsText);
+              } else {
+                alert('❌ TOKEN NULL\n\n──── LOGS ────\n' + logsText);
+              }
+            } catch (e: any) {
+              alert('❌ Exception:\n' + (e?.message ?? String(e)));
+            }
+          }}
+        >
+          <Text style={{ color: '#DC2626', fontWeight: '900', textAlign: 'center', fontSize: 14 }}>
+            [DEBUG] Générer mon token push
+          </Text>
+        </TouchableOpacity>
+
 
         {/* Logo card */}
         <Animated.View entering={FadeInDown.duration(400)} style={styles.card}>
